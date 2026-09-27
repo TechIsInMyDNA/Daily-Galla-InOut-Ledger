@@ -45,7 +45,7 @@
     .log-item:last-child { border-bottom: none; }
     .log-desc { font-weight: 600; font-size: 0.88rem; }
     .log-meta { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
-    .badge { padding: 3px 8px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px; }
+    .badge { padding: 3px 8px; border-radius: 5px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px; display: inline-block; }
     .badge-active { background: rgba(16, 185, 129, 0.15); color: var(--green); border: 1px solid var(--green); }
     .badge-closed { background: rgba(100, 116, 139, 0.15); color: var(--muted); border: 1px solid var(--muted); }
     .badge-amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid var(--amber); }
@@ -53,10 +53,45 @@
     .sync-text { font-size: 0.72rem; color: var(--muted); font-family: monospace; }
     
     /* Shift Accordion Cards */
-    .history-card { background: #0b1120; border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; }
-    .history-card:hover { border-color: rgba(56, 189, 248, 0.4); }
-    .history-details { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--card-border); display: none; }
+    .history-card { 
+      background: #0b1120; 
+      border: 1px solid var(--card-border); 
+      border-radius: 10px; 
+      padding: 12px; 
+      margin-bottom: 10px; 
+      cursor: pointer; 
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .history-card:active { transform: scale(0.99); }
+    .history-card.active-card-open { 
+      border-color: var(--primary); 
+      background: #0d1527; 
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .chevron-icon { 
+      font-size: 0.8rem; 
+      color: var(--muted); 
+      transition: transform 0.2s ease; 
+      display: inline-block;
+      margin-left: 6px;
+    }
+    .active-card-open .chevron-icon { 
+      transform: rotate(180deg); 
+      color: var(--primary);
+    }
+    .history-details { 
+      margin-top: 12px; 
+      padding-top: 12px; 
+      border-top: 1px dashed var(--card-border); 
+      display: none; 
+      animation: fadeIn 0.2s ease;
+    }
     .history-details.open { display: block; }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
   </style>
 </head>
 <body>
@@ -182,7 +217,7 @@
   <div id="view-history" class="card hidden" style="width:100%;">
     <div class="flex-between" style="margin-bottom:12px;">
       <h3 style="font-size:0.95rem;">Past Shift Archives</h3>
-      <span style="font-size:0.75rem; color:var(--muted);">Click any shift to view entries</span>
+      <span style="font-size:0.75rem; color:var(--muted);">Click any card to expand entries</span>
     </div>
     <div id="history-container">
       <div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:12px;">No archived shifts yet.</div>
@@ -362,7 +397,7 @@
     }
   }
 
-  // --- Operations ---
+  // --- Shift Actions ---
   function startShift() {
     const openVal = parseFloat(document.getElementById('in-open-cash').value) || 0;
     const now = formatDateTime();
@@ -436,16 +471,16 @@
     if (!shift) return { open: 0, net: 0, live: 0, in: 0, out: 0 };
     let tin = 0;
     let tout = 0;
-    shift.entries.forEach(e => {
+    (shift.entries || []).forEach(e => {
       if (e.type === 'IN') tin += e.amount;
       if (e.type === 'OUT') tout += e.amount;
     });
     return {
-      open: shift.openingCash,
+      open: shift.openingCash || 0,
       in: tin,
       out: tout,
       net: tin - tout,
-      live: shift.openingCash + (tin - tout)
+      live: (shift.openingCash || 0) + (tin - tout)
     };
   }
 
@@ -480,27 +515,34 @@
     const listEl = document.getElementById('log-list');
     const countEl = document.getElementById('log-count');
 
-    if (!shift || shift.entries.length === 0) {
+    if (!shift || !shift.entries || shift.entries.length === 0) {
       listEl.innerHTML = `<div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:12px;">Galla is idle. No entries logged.</div>`;
       countEl.textContent = '0 entries';
       return;
     }
 
     countEl.textContent = `${shift.entries.length} entries`;
-    listEl.innerHTML = shift.entries.map(e => `
-      <div class="log-item">
-        <div>
-          <div class="log-desc">${e.desc}</div>
-          <div class="log-meta">${e.timestamp} • ${e.type === 'IN' ? 'Galla Inflow' : 'Galla Outflow'}</div>
+    listEl.innerHTML = shift.entries.map(e => {
+      let colorClass = 'c-primary';
+      let sign = '';
+      if (e.type === 'IN') { colorClass = 'c-green'; sign = '+'; }
+      if (e.type === 'OUT') { colorClass = 'c-red'; sign = '-'; }
+
+      return `
+        <div class="log-item">
+          <div>
+            <div class="log-desc">${e.desc}</div>
+            <div class="log-meta">${e.timestamp} • ${e.type === 'IN' ? 'Galla Inflow' : 'Galla Outflow'}</div>
+          </div>
+          <div style="font-weight:800; font-size: 0.95rem;" class="${colorClass}">
+            ${sign}₹${e.amount}
+          </div>
         </div>
-        <div style="font-weight:800; font-size: 0.95rem;" class="${e.type === 'IN' ? 'c-green' : 'c-red'}">
-          ${e.type === 'IN' ? '+' : '-'}₹${e.amount}
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   }
 
-  // --- Render Past Shifts Archive Accordion ---
+  // --- Render Past Shifts Archive Accordion (Click on Card Expands) ---
   function renderHistory() {
     const container = document.getElementById('history-container');
     const history = appState.history || [];
@@ -516,30 +558,36 @@
       if (disc > 0) tallyBadge = `<span class="badge badge-amber">+₹${disc} Extra</span>`;
       if (disc < 0) tallyBadge = `<span class="badge badge-closed" style="color:var(--red); border-color:var(--red);">-₹${Math.abs(disc)} Short</span>`;
 
+      const checkInDisp = s.checkinTime || 'N/A';
+      const checkOutDisp = s.checkoutTime ? s.checkoutTime.split(', ')[1] || s.checkoutTime : 'Closed';
+
       return `
-        <div class="history-card" onclick="toggleHistoryDetails(${idx})">
+        <div class="history-card" id="hist-card-${idx}" onclick="toggleHistoryDetails(${idx})">
           <div class="flex-between">
             <div>
-              <div style="font-weight:700; font-size:0.9rem; color:var(--primary);">
-                ${s.checkinTime} ➔ ${s.checkoutTime ? s.checkoutTime.split(', ')[1] : 'Closed'}
+              <div style="font-weight:700; font-size:0.9rem; color:var(--primary); display:flex; align-items:center;">
+                ${checkInDisp} ➔ ${checkOutDisp}
+                <span class="chevron-icon">▼</span>
               </div>
               <div style="font-size:0.75rem; color:var(--muted); margin-top:3px;">
-                Opening: ₹${s.openingCash} | In: +₹${s.totalIn || 0} | Out: -₹${s.totalOut || 0}
+                Opening: ₹${s.openingCash || 0} | In: +₹${s.totalIn || 0} | Out: -₹${s.totalOut || 0}
               </div>
             </div>
             <div style="text-align:right;">
-              <div style="font-weight:800; font-size:0.95rem;">Counted: ₹${s.actualCashCounted ?? s.expectedCash}</div>
+              <div style="font-weight:800; font-size:0.95rem;">Counted: ₹${s.actualCashCounted ?? (s.expectedCash || 0)}</div>
               <div style="margin-top:2px;">${tallyBadge}</div>
             </div>
           </div>
 
           <!-- Collapsible Entries Detail -->
-          <div id="hist-detail-${idx}" class="history-details">
-            <div style="font-size:0.75rem; color:var(--muted); margin-bottom:6px; font-weight:700; text-transform:uppercase;">
-              Shift Entries (${s.entries ? s.entries.length : 0})
+          <div id="hist-detail-${idx}" class="history-details" onclick="event.stopPropagation()">
+            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.75rem; color:var(--muted); font-weight:700;">
+              <span>SHIFT AUDIT BREAKDOWN</span>
+              <span>${s.entries ? s.entries.length : 0} ITEMS</span>
             </div>
-            ${(!s.entries || s.entries.length === 0) ? '<div style="font-size:0.75rem; color:var(--muted);">No movement entries recorded.</div>' : 
-              s.entries.map(e => `
+            ${(!s.entries || s.entries.length === 0) 
+              ? '<div style="font-size:0.78rem; color:var(--muted); padding:6px 0;">No movement entries recorded during this shift.</div>' 
+              : s.entries.map(e => `
                 <div class="log-item" style="padding:6px 0;">
                   <div>
                     <div style="font-size:0.82rem; font-weight:600;">${e.desc}</div>
@@ -558,8 +606,12 @@
   }
 
   function toggleHistoryDetails(idx) {
-    const el = document.getElementById(`hist-detail-${idx}`);
-    if (el) el.classList.toggle('open');
+    const detailEl = document.getElementById(`hist-detail-${idx}`);
+    const cardEl = document.getElementById(`hist-card-${idx}`);
+    if (detailEl && cardEl) {
+      detailEl.classList.toggle('open');
+      cardEl.classList.toggle('active-card-open');
+    }
   }
 
   // Auto-init
@@ -567,7 +619,7 @@
   const cfg = getConfig();
   if (cfg.token && cfg.pass) {
     syncWithGitHub();
-    setInterval(syncWithGitHub, 20000); // 20-second background live sync pulse
+    setInterval(syncWithGitHub, 20000);
   } else {
     toggleConfig();
   }
