@@ -15,6 +15,7 @@
       --green: #10b981;
       --red: #f43f5e;
       --amber: #f59e0b;
+      --highlight: rgba(245, 158, 11, 0.35);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 12px; display: flex; justify-content: center; }
@@ -92,6 +93,16 @@
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(-4px); }
       to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Highlight Match Badge */
+    mark.match-hl {
+      background-color: var(--highlight);
+      color: #fff;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 4px;
+      border: 1px solid rgba(245, 158, 11, 0.5);
     }
   </style>
 </head>
@@ -216,10 +227,22 @@
 
   <!-- ================= TAB 2: PAST SHIFTS HISTORY ================= -->
   <div id="view-history" class="card hidden" style="width:100%;">
-    <div class="flex-between" style="margin-bottom:12px;">
+    <div class="flex-between" style="margin-bottom:10px;">
       <h3 style="font-size:0.95rem;">Past Shift Archives</h3>
       <span style="font-size:0.75rem; color:var(--muted);">Click card to expand | Share to WA</span>
     </div>
+
+    <!-- Live Partial Search Bar -->
+    <div style="margin-bottom:12px;">
+      <input 
+        type="text" 
+        id="history-search-input" 
+        placeholder="🔍 Search note, reason, or amount (e.g. Chai, 500, Ramesh)..." 
+        oninput="renderHistory()" 
+        style="background: #090d16; font-size: 0.85rem;"
+      />
+    </div>
+
     <div id="history-container">
       <div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:12px;">No archived shifts yet.</div>
     </div>
@@ -311,6 +334,10 @@
       document.getElementById('tab-active-btn').classList.remove('active');
       document.getElementById('tab-history-btn').classList.add('active');
       renderHistory();
+      setTimeout(() => {
+        const sInput = document.getElementById('history-search-input');
+        if (sInput) sInput.focus();
+      }, 100);
     }
   }
 
@@ -326,7 +353,6 @@
     let sanitized = val.toString().replace(/[^0-9+\-*/.]/g, '');
     try {
       if (sanitized && /^[\d+\-*/.]+$/.test(sanitized)) {
-        // Safe evaluation for basic arithmetic
         const res = Function(`"use strict"; return (${sanitized})`)();
         if (!isNaN(res) && isFinite(res)) {
           return Math.round(res * 100) / 100;
@@ -336,7 +362,6 @@
     return val;
   }
 
-  // Setup Inline Math & Strict TAB Loop for PC Keyboard users
   function setupInputHandlers() {
     const amtInput = document.getElementById('tx-amount');
     const descInput = document.getElementById('tx-desc');
@@ -363,7 +388,6 @@
       }
     });
 
-    // Tab Loop Lock: Save Button pe Tab dabane par wapas Movement Type pe jaye
     saveBtn.addEventListener('keydown', (e) => {
       if (e.key === 'Tab' && !e.shiftKey) {
         e.preventDefault();
@@ -371,7 +395,6 @@
       }
     });
 
-    // Shift + Tab from Type returns to Save Button
     typeSelect.addEventListener('keydown', (e) => {
       if (e.key === 'Tab' && e.shiftKey) {
         e.preventDefault();
@@ -503,8 +526,6 @@
     document.getElementById('tx-desc').value = '';
     renderUI();
     pushToGitHub();
-
-    // Auto focus back to amount for rapid cashier entries
     amtField.focus();
   }
 
@@ -609,7 +630,7 @@
     }).join('');
   }
 
-  // --- Export Shift to Clean WhatsApp / Printable Report ---
+  // --- Export Shift to Clean WhatsApp Report ---
   function exportShiftToWhatsApp(idx) {
     const s = (appState.history || [])[idx];
     if (!s) return;
@@ -648,17 +669,39 @@
     window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
   }
 
-  // --- Render Past Shifts Archive Accordion ---
+  // Helper function to safely highlight matching strings
+  function highlightText(text, query) {
+    if (!query) return text;
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    return text.toString().replace(regex, `<mark class="match-hl">$1</mark>`);
+  }
+
+  // --- Render Past Shifts Archive Accordion with Partial Search Filter ---
   function renderHistory() {
     const container = document.getElementById('history-container');
     const history = appState.history || [];
+    const searchInput = document.getElementById('history-search-input');
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
     if (history.length === 0) {
       container.innerHTML = `<div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:16px;">Koi purani shift archive me nahi hai.</div>`;
       return;
     }
 
-    container.innerHTML = history.map((s, idx) => {
+    let renderedCount = 0;
+    const htmlCards = history.map((s, idx) => {
+      // Search matching logic: checks note description or amount
+      let hasMatchingEntry = false;
+      if (query) {
+        hasMatchingEntry = (s.entries || []).some(e => 
+          (e.desc && e.desc.toLowerCase().includes(query)) || 
+          (e.amount && e.amount.toString().includes(query))
+        );
+        if (!hasMatchingEntry) return ''; // Filter out non-matching shifts
+      }
+
+      renderedCount++;
       const disc = s.discrepancy || 0;
       let tallyBadge = `<span class="badge badge-active">Matched Exact</span>`;
       if (disc > 0) tallyBadge = `<span class="badge badge-amber">+₹${disc} Extra</span>`;
@@ -666,14 +709,18 @@
 
       const checkInDisp = s.checkinTime || 'N/A';
       const checkOutDisp = s.checkoutTime ? s.checkoutTime.split(', ')[1] || s.checkoutTime : 'Closed';
+      
+      // Auto expand card if query found
+      const shouldAutoOpen = query && hasMatchingEntry;
 
       return `
-        <div class="history-card" id="hist-card-${idx}" onclick="toggleHistoryDetails(${idx})">
+        <div class="history-card ${shouldAutoOpen ? 'active-card-open' : ''}" id="hist-card-${idx}" onclick="toggleHistoryDetails(${idx})">
           <div class="flex-between">
             <div>
               <div style="font-weight:700; font-size:0.9rem; color:var(--primary); display:flex; align-items:center;">
                 ${checkInDisp} ➔ ${checkOutDisp}
                 <span class="chevron-icon">▼</span>
+                ${shouldAutoOpen ? '<span class="badge badge-amber" style="margin-left:6px; font-size:0.65rem;">Match Found</span>' : ''}
               </div>
               <div style="font-size:0.75rem; color:var(--muted); margin-top:3px;">
                 Opening: ₹${s.openingCash || 0} | In: +₹${s.totalIn || 0} | Out: -₹${s.totalOut || 0}
@@ -686,29 +733,41 @@
           </div>
 
           <!-- Collapsible Entries Detail -->
-          <div id="hist-detail-${idx}" class="history-details" onclick="event.stopPropagation()">
+          <div id="hist-detail-${idx}" class="history-details ${shouldAutoOpen ? 'open' : ''}" onclick="event.stopPropagation()">
             <div class="flex-between" style="margin-bottom:8px;">
               <span style="font-size:0.75rem; color:var(--muted); font-weight:700;">SHIFT AUDIT BREAKDOWN (${s.entries ? s.entries.length : 0})</span>
               <button class="btn btn-wa btn-sm" onclick="exportShiftToWhatsApp(${idx})">📤 Share to WhatsApp</button>
             </div>
             ${(!s.entries || s.entries.length === 0) 
               ? '<div style="font-size:0.78rem; color:var(--muted); padding:6px 0;">No movement entries recorded during this shift.</div>' 
-              : s.entries.map(e => `
-                <div class="log-item" style="padding:6px 0;">
-                  <div>
-                    <div style="font-size:0.82rem; font-weight:600;">${e.desc}</div>
-                    <div style="font-size:0.7rem; color:var(--muted);">${e.timestamp}</div>
+              : s.entries.map(e => {
+                const descHighlighted = highlightText(e.desc, query);
+                const amtHighlighted = highlightText(e.amount, query);
+                const isItemMatch = query && ((e.desc && e.desc.toLowerCase().includes(query)) || (e.amount && e.amount.toString().includes(query)));
+
+                return `
+                  <div class="log-item" style="padding:6px 0; ${isItemMatch ? 'background:rgba(245, 158, 11, 0.08); border-radius:6px; padding:6px 8px; margin:2px 0;' : ''}">
+                    <div>
+                      <div style="font-size:0.82rem; font-weight:600;">${descHighlighted}</div>
+                      <div style="font-size:0.7rem; color:var(--muted);">${e.timestamp}</div>
+                    </div>
+                    <div style="font-weight:700; font-size:0.85rem;" class="${e.type === 'IN' ? 'c-green' : 'c-red'}">
+                      ${e.type === 'IN' ? '+' : '-'}₹${amtHighlighted}
+                    </div>
                   </div>
-                  <div style="font-weight:700; font-size:0.85rem;" class="${e.type === 'IN' ? 'c-green' : 'c-red'}">
-                    ${e.type === 'IN' ? '+' : '-'}₹${e.amount}
-                  </div>
-                </div>
-              `).join('')
+                `;
+              }).join('')
             }
           </div>
         </div>
       `;
     }).join('');
+
+    if (query && renderedCount === 0) {
+      container.innerHTML = `<div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:16px;">Koi entry ya amount match nahi hua: "<b>${query}</b>"</div>`;
+    } else {
+      container.innerHTML = htmlCards;
+    }
   }
 
   function toggleHistoryDetails(idx) {
