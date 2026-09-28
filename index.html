@@ -26,6 +26,7 @@
     .btn-primary { background: var(--primary); color: #000; font-weight: 700; }
     .btn-green { background: var(--green); color: #000; font-weight: 700; }
     .btn-red { background: var(--red); color: #fff; font-weight: 700; }
+    .btn-wa { background: #25D366; color: #000; font-weight: 700; }
     .btn-sm { padding: 5px 10px; font-size: 0.75rem; border-radius: 6px; }
     .tab-btn { flex: 1; padding: 10px; background: transparent; border: 1px solid var(--card-border); color: var(--muted); border-radius: 8px; font-weight: 700; font-size: 0.82rem; cursor: pointer; }
     .tab-btn.active { background: var(--card); color: var(--primary); border-color: var(--primary); }
@@ -175,30 +176,30 @@
       <button class="btn btn-green" style="width:100%;" onclick="startShift()">✓ Check-In (Start Shift)</button>
     </div>
 
-    <!-- Active Shift Entry Module -->
+    <!-- Active Shift Entry Module (Strict TAB Navigation Loop) -->
     <div id="active-card" class="card hidden" style="width:100%;">
       <div class="flex-between" style="margin-bottom:12px;">
         <h3 style="font-size:0.95rem;">Log Galla Movement</h3>
-        <button class="btn btn-red btn-sm" onclick="endShiftPrompt()">Close Shift (Check-Out)</button>
+        <button class="btn btn-red btn-sm" tabindex="-1" onclick="endShiftPrompt()">Close Shift (Check-Out)</button>
       </div>
       <div class="grid-2">
         <div class="input-group">
           <label>Type</label>
-          <select id="tx-type">
+          <select id="tx-type" tabindex="1">
             <option value="IN">Cash IN (Aaya)</option>
             <option value="OUT">Cash OUT (Diya)</option>
           </select>
         </div>
         <div class="input-group">
-          <label>Amount (₹)</label>
-          <input type="number" id="tx-amount" placeholder="e.g. 500" />
+          <label>Amount (₹ / Math: 55+11)</label>
+          <input type="text" id="tx-amount" tabindex="2" placeholder="e.g. 500 or 55+11" autocomplete="off" />
         </div>
       </div>
       <div class="input-group">
         <label>Reason / Note / Party</label>
-        <input type="text" id="tx-desc" placeholder="Chai / Distributor payment / Dawa bikri" />
+        <input type="text" id="tx-desc" tabindex="3" placeholder="Chai / Distributor payment / Dawa bikri" autocomplete="off" />
       </div>
-      <button class="btn btn-primary" style="width:100%;" onclick="addTransaction()">Save Entry</button>
+      <button id="btn-save-tx" class="btn btn-primary" tabindex="4" style="width:100%;" onclick="addTransaction()">Save Entry</button>
     </div>
 
     <!-- Shift Timeline Log -->
@@ -217,7 +218,7 @@
   <div id="view-history" class="card hidden" style="width:100%;">
     <div class="flex-between" style="margin-bottom:12px;">
       <h3 style="font-size:0.95rem;">Past Shift Archives</h3>
-      <span style="font-size:0.75rem; color:var(--muted);">Click any card to expand entries</span>
+      <span style="font-size:0.75rem; color:var(--muted);">Click card to expand | Share to WA</span>
     </div>
     <div id="history-container">
       <div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:12px;">No archived shifts yet.</div>
@@ -319,6 +320,66 @@
     return `${d}, ${t}`;
   }
 
+  // --- Inline Expression Calculator ---
+  function evaluateMathInput(val) {
+    if (!val) return '';
+    let sanitized = val.toString().replace(/[^0-9+\-*/.]/g, '');
+    try {
+      if (sanitized && /^[\d+\-*/.]+$/.test(sanitized)) {
+        // Safe evaluation for basic arithmetic
+        const res = Function(`"use strict"; return (${sanitized})`)();
+        if (!isNaN(res) && isFinite(res)) {
+          return Math.round(res * 100) / 100;
+        }
+      }
+    } catch (e) {}
+    return val;
+  }
+
+  // Setup Inline Math & Strict TAB Loop for PC Keyboard users
+  function setupInputHandlers() {
+    const amtInput = document.getElementById('tx-amount');
+    const descInput = document.getElementById('tx-desc');
+    const saveBtn = document.getElementById('btn-save-tx');
+    const typeSelect = document.getElementById('tx-type');
+
+    amtInput.addEventListener('blur', () => {
+      const calc = evaluateMathInput(amtInput.value);
+      if (calc !== '') amtInput.value = calc;
+    });
+
+    amtInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        amtInput.value = evaluateMathInput(amtInput.value);
+        descInput.focus();
+      }
+    });
+
+    descInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addTransaction();
+      }
+    });
+
+    // Tab Loop Lock: Save Button pe Tab dabane par wapas Movement Type pe jaye
+    saveBtn.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab' && !e.shiftKey) {
+        e.preventDefault();
+        typeSelect.focus();
+      }
+    });
+
+    // Shift + Tab from Type returns to Save Button
+    typeSelect.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab' && e.shiftKey) {
+        e.preventDefault();
+        saveBtn.focus();
+      }
+    });
+  }
+
   // --- GitHub Live Sync Engine ---
   async function syncWithGitHub() {
     const cfg = getConfig();
@@ -414,15 +475,18 @@
     document.getElementById('in-open-cash').value = '';
     renderUI();
     pushToGitHub();
+    setTimeout(() => document.getElementById('tx-amount').focus(), 150);
   }
 
   function addTransaction() {
     const type = document.getElementById('tx-type').value;
-    const amount = parseFloat(document.getElementById('tx-amount').value);
+    const amtField = document.getElementById('tx-amount');
+    const evaluatedAmount = evaluateMathInput(amtField.value);
+    const amount = parseFloat(evaluatedAmount);
     const desc = document.getElementById('tx-desc').value.trim();
 
     if (!amount || amount <= 0 || !desc) {
-      alert('Kripya amount aur reason dono fill karein!');
+      alert('Kripya valid amount aur description fill karein!');
       return;
     }
 
@@ -435,10 +499,13 @@
       timestamp: now
     });
 
-    document.getElementById('tx-amount').value = '';
+    amtField.value = '';
     document.getElementById('tx-desc').value = '';
     renderUI();
     pushToGitHub();
+
+    // Auto focus back to amount for rapid cashier entries
+    amtField.focus();
   }
 
   function endShiftPrompt() {
@@ -542,7 +609,46 @@
     }).join('');
   }
 
-  // --- Render Past Shifts Archive Accordion (Click on Card Expands) ---
+  // --- Export Shift to Clean WhatsApp / Printable Report ---
+  function exportShiftToWhatsApp(idx) {
+    const s = (appState.history || [])[idx];
+    if (!s) return;
+
+    const disc = s.discrepancy || 0;
+    let statusText = "Matched Exact";
+    if (disc > 0) statusText = `+₹${disc} Extra in Galla`;
+    if (disc < 0) statusText = `-₹${Math.abs(disc)} Short in Galla`;
+
+    let report = `📊 *GALLA SHIFT AUDIT REPORT*\n`;
+    report += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    report += `🟢 *Check-In:* ${s.checkinTime}\n`;
+    report += `🔴 *Check-Out:* ${s.checkoutTime || 'Closed'}\n`;
+    report += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    report += `💵 *Opening Cash Float:* ₹${s.openingCash || 0}\n`;
+    report += `📈 *Total Cash In (Aaya):* ₹${s.totalIn || 0}\n`;
+    report += `📉 *Total Cash Out (Diya):* ₹${s.totalOut || 0}\n`;
+    report += `⚖️ *Expected Galla:* ₹${s.expectedCash ?? (s.openingCash + (s.totalIn||0) - (s.totalOut||0))}\n`;
+    report += `🧾 *Physical Counted:* ₹${s.actualCashCounted ?? 'N/A'}\n`;
+    report += `📌 *Tally Status:* ${statusText}\n`;
+    report += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    report += `📝 *MOVEMENT ENTRIES LOG (${s.entries ? s.entries.length : 0})*\n`;
+
+    if (!s.entries || s.entries.length === 0) {
+      report += `_No movement entries recorded._\n`;
+    } else {
+      s.entries.forEach((e, i) => {
+        const sign = e.type === 'IN' ? '+₹' : '-₹';
+        report += `${i + 1}. [${e.timestamp.split(', ')[1] || e.timestamp}] ${e.desc} ➔ *${sign}${e.amount}*\n`;
+      });
+    }
+    report += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    report += `_Generated via Daily Galla InOut Ledger_`;
+
+    const encoded = encodeURIComponent(report);
+    window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
+  }
+
+  // --- Render Past Shifts Archive Accordion ---
   function renderHistory() {
     const container = document.getElementById('history-container');
     const history = appState.history || [];
@@ -581,9 +687,9 @@
 
           <!-- Collapsible Entries Detail -->
           <div id="hist-detail-${idx}" class="history-details" onclick="event.stopPropagation()">
-            <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-size:0.75rem; color:var(--muted); font-weight:700;">
-              <span>SHIFT AUDIT BREAKDOWN</span>
-              <span>${s.entries ? s.entries.length : 0} ITEMS</span>
+            <div class="flex-between" style="margin-bottom:8px;">
+              <span style="font-size:0.75rem; color:var(--muted); font-weight:700;">SHIFT AUDIT BREAKDOWN (${s.entries ? s.entries.length : 0})</span>
+              <button class="btn btn-wa btn-sm" onclick="exportShiftToWhatsApp(${idx})">📤 Share to WhatsApp</button>
             </div>
             ${(!s.entries || s.entries.length === 0) 
               ? '<div style="font-size:0.78rem; color:var(--muted); padding:6px 0;">No movement entries recorded during this shift.</div>' 
@@ -616,6 +722,7 @@
 
   // Auto-init
   loadConfigFields();
+  setupInputHandlers();
   const cfg = getConfig();
   if (cfg.token && cfg.pass) {
     syncWithGitHub();
