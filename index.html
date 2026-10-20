@@ -24,6 +24,7 @@
     .flex-between { display: flex; justify-content: space-between; align-items: center; }
     .btn { background: var(--card-border); color: var(--text); border: none; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: 0.15s; }
     .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-primary { background: var(--primary); color: #000; font-weight: 700; }
     .btn-green { background: var(--green); color: #000; font-weight: 700; }
     .btn-red { background: var(--red); color: #fff; font-weight: 700; }
@@ -95,7 +96,6 @@
       to { opacity: 1; transform: translateY(0); }
     }
     
-    /* Highlight Match Badge */
     mark.match-hl {
       background-color: var(--highlight);
       color: #fff;
@@ -184,7 +184,7 @@
         <label>Opening Cash Float (₹)</label>
         <input type="number" id="in-open-cash" placeholder="e.g. 2000" />
       </div>
-      <button class="btn btn-green" style="width:100%;" onclick="startShift()">✓ Check-In (Start Shift)</button>
+      <button id="btn-checkin" class="btn btn-green" style="width:100%;" onclick="startShift()">✓ Check-In (Start Shift)</button>
     </div>
 
     <!-- Active Shift Entry Module (Strict TAB Navigation Loop) -->
@@ -291,6 +291,7 @@
     history: []
   };
   let fileSha = null;
+  let isPushing = false; // Lock flag to prevent concurrent collisions
 
   function getConfig() {
     return {
@@ -347,7 +348,6 @@
     return `${d}, ${t}`;
   }
 
-  // --- Inline Expression Calculator ---
   function evaluateMathInput(val) {
     if (!val) return '';
     let sanitized = val.toString().replace(/[^0-9+\-*/.]/g, '');
@@ -403,8 +403,31 @@
     });
   }
 
+  // Helper to fetch latest SHA silently from GitHub
+  async function fetchLatestSha() {
+    const cfg = getConfig();
+    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?t=${Date.now()}`;
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${cfg.token}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+      if (res.status === 200) {
+        const json = await res.json();
+        fileSha = json.sha;
+        return json.sha;
+      }
+    } catch (e) {
+      console.warn('Could not fetch latest SHA', e);
+    }
+    return fileSha;
+  }
+
   // --- GitHub Live Sync Engine ---
   async function syncWithGitHub() {
+    if (isPushing) return; // Don't interrupt while pushing
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) {
       document.getElementById('sync-status').textContent = '⚠️ Settings missing';
@@ -413,7 +436,7 @@
     }
 
     document.getElementById('sync-status').textContent = '⚡ Syncing...';
-    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`;
+    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?t=${Date.now()}`;
 
     try {
       const res = await fetch(url, {
@@ -440,26 +463,35 @@
       }
     } catch (e) {
       console.error(e);
-      document.getElementById('sync-status').textContent = 'Password error / Corrupted';
+      document.getElementById('sync-status').textContent = 'Passphrase error';
     }
   }
 
-  async function pushToGitHub() {
+  // Robust Bulletproof Push with SHA Auto-Refresh and Max 3 Retries
+  async function pushToGitHub(retryCount = 0) {
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) return;
 
-    document.getElementById('sync-status').textContent = 'Saving...';
+    isPushing = true;
+    document.getElementById('sync-status').textContent = retryCount > 0 ? `Re-trying (${retryCount})...` : 'Saving...';
+    
+    // Ensure we have the fresh SHA
+    if (!fileSha || retryCount > 0) {
+      await fetchLatestSha();
+    }
+
     const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`;
-    const encrypted = await CryptoEngine.encrypt(JSON.stringify(appState, null, 2), cfg.pass);
-    const encodedPayload = btoa(unescape(encodeURIComponent(encrypted)));
-
-    const payload = {
-      message: `Galla Ledger update: ${new Date().toISOString()}`,
-      content: encodedPayload,
-      sha: fileSha || undefined
-    };
-
+    
     try {
+      const encrypted = await CryptoEngine.encrypt(JSON.stringify(appState, null, 2), cfg.pass);
+      const encodedPayload = btoa(unescape(encodeURIComponent(encrypted)));
+
+      const payload = {
+        message: `Galla Ledger update: ${new Date().toISOString()}`,
+        content: encodedPayload,
+        sha: fileSha || undefined
+      };
+
       const res = await fetch(url, {
         method: 'PUT',
         headers: {
@@ -468,21 +500,40 @@
         },
         body: JSON.stringify(payload)
       });
+
       if (res.ok) {
         const data = await res.json();
         fileSha = data.content.sha;
         document.getElementById('sync-status').textContent = `● Live Synced (${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`;
+        isPushing = false;
+      } else if (res.status === 409 && retryCount < 3) {
+        // SHA conflict detected: Refresh SHA and immediately retry
+        console.warn(`SHA Conflict (409). Auto retrying attempt ${retryCount + 1}...`);
+        await fetchLatestSha();
+        await new Promise(r => setTimeout(r, 600));
+        return pushToGitHub(retryCount + 1);
       } else {
-        document.getElementById('sync-status').textContent = 'Commit failed';
+        document.getElementById('sync-status').textContent = `Commit error (${res.status})`;
+        isPushing = false;
       }
     } catch (e) {
       console.error(e);
-      document.getElementById('sync-status').textContent = 'Push Error';
+      if (retryCount < 3) {
+        await fetchLatestSha();
+        await new Promise(r => setTimeout(r, 800));
+        return pushToGitHub(retryCount + 1);
+      }
+      document.getElementById('sync-status').textContent = 'Push error';
+      isPushing = false;
     }
   }
 
   // --- Shift Actions ---
-  function startShift() {
+  async function startShift() {
+    const btn = document.getElementById('btn-checkin');
+    btn.disabled = true;
+    btn.textContent = 'Checking in...';
+
     const openVal = parseFloat(document.getElementById('in-open-cash').value) || 0;
     const now = formatDateTime();
 
@@ -497,12 +548,18 @@
 
     document.getElementById('in-open-cash').value = '';
     renderUI();
-    pushToGitHub();
-    setTimeout(() => document.getElementById('tx-amount').focus(), 150);
+    await pushToGitHub();
+
+    btn.disabled = false;
+    btn.textContent = '✓ Check-In (Start Shift)';
+    setTimeout(() => {
+      const amt = document.getElementById('tx-amount');
+      if (amt) amt.focus();
+    }, 150);
   }
 
-  function addTransaction() {
-    const type = document.getElementById('tx-type').value;
+  async function addTransaction() {
+    const saveBtn = document.getElementById('btn-save-tx');
     const amtField = document.getElementById('tx-amount');
     const evaluatedAmount = evaluateMathInput(amtField.value);
     const amount = parseFloat(evaluatedAmount);
@@ -513,7 +570,12 @@
       return;
     }
 
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+
+    const type = document.getElementById('tx-type').value;
     const now = formatDateTime();
+
     appState.currentShift.entries.unshift({
       id: Date.now(),
       type,
@@ -525,11 +587,14 @@
     amtField.value = '';
     document.getElementById('tx-desc').value = '';
     renderUI();
-    pushToGitHub();
+    await pushToGitHub();
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save Entry';
     amtField.focus();
   }
 
-  function endShiftPrompt() {
+  async function endShiftPrompt() {
     const totals = calculateShiftTotals(appState.currentShift);
     const actualStr = prompt(`Counter Check-Out!\nHisab ke mutabiq galle me hona chahiye: ₹${totals.live}\n\nPhysical counted cash kitna hai enter karein:`, totals.live);
     if (actualStr === null) return;
@@ -552,7 +617,7 @@
 
     renderUI();
     renderHistory();
-    pushToGitHub();
+    await pushToGitHub();
   }
 
   function calculateShiftTotals(shift) {
@@ -630,7 +695,6 @@
     }).join('');
   }
 
-  // --- Export Shift to Clean WhatsApp Report ---
   function exportShiftToWhatsApp(idx) {
     const s = (appState.history || [])[idx];
     if (!s) return;
@@ -669,7 +733,6 @@
     window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
   }
 
-  // Helper function to safely highlight matching strings
   function highlightText(text, query) {
     if (!query) return text;
     const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -677,7 +740,6 @@
     return text.toString().replace(regex, `<mark class="match-hl">$1</mark>`);
   }
 
-  // --- Render Past Shifts Archive Accordion with Partial Search Filter ---
   function renderHistory() {
     const container = document.getElementById('history-container');
     const history = appState.history || [];
@@ -691,14 +753,13 @@
 
     let renderedCount = 0;
     const htmlCards = history.map((s, idx) => {
-      // Search matching logic: checks note description or amount
       let hasMatchingEntry = false;
       if (query) {
         hasMatchingEntry = (s.entries || []).some(e => 
           (e.desc && e.desc.toLowerCase().includes(query)) || 
           (e.amount && e.amount.toString().includes(query))
         );
-        if (!hasMatchingEntry) return ''; // Filter out non-matching shifts
+        if (!hasMatchingEntry) return '';
       }
 
       renderedCount++;
@@ -709,8 +770,6 @@
 
       const checkInDisp = s.checkinTime || 'N/A';
       const checkOutDisp = s.checkoutTime ? s.checkoutTime.split(', ')[1] || s.checkoutTime : 'Closed';
-      
-      // Auto expand card if query found
       const shouldAutoOpen = query && hasMatchingEntry;
 
       return `
@@ -732,7 +791,6 @@
             </div>
           </div>
 
-          <!-- Collapsible Entries Detail -->
           <div id="hist-detail-${idx}" class="history-details ${shouldAutoOpen ? 'open' : ''}" onclick="event.stopPropagation()">
             <div class="flex-between" style="margin-bottom:8px;">
               <span style="font-size:0.75rem; color:var(--muted); font-weight:700;">SHIFT AUDIT BREAKDOWN (${s.entries ? s.entries.length : 0})</span>
