@@ -407,25 +407,38 @@
       }
     });
 
-    // Global Key Listener for 'I' and 'O'
+    // Global Key Listener for ESC, 'I' and 'O'
     window.addEventListener('keydown', (e) => {
-      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
-        return; // Don't trigger if user is typing text
+      const activeEl = document.activeElement;
+      const isInputActive = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
+
+      // 1. ESC dabane par text box blur hoga taaki shortcuts active ho sakein
+      if (e.key === 'Escape') {
+        if (isInputActive) {
+          activeEl.blur();
+        }
+        return;
+      }
+
+      // Agar text box me cursor hai, normal typing allow karo
+      if (isInputActive) {
+        return;
       }
 
       const key = e.key.toLowerCase();
+
+      // 2. 'I' dabane par direct Shift Check-in action
       if (key === 'i') {
         e.preventDefault();
         switchTab('active');
         if (!appState.currentShift || appState.currentShift.status !== 'ACTIVE') {
-          const openInp = document.getElementById('in-open-cash');
-          openInp.focus();
-          openInp.select();
+          startShift();
         } else {
           amtInput.focus();
         }
-      } else if (key === 'o') {
+      } 
+      // 3. 'O' dabane par direct Shift Check-out prompt
+      else if (key === 'o') {
         e.preventDefault();
         if (appState.currentShift && appState.currentShift.status === 'ACTIVE') {
           endShiftPrompt();
@@ -500,7 +513,7 @@
     }
   }
 
-  // Ironclad Push Engine (Always fetches head SHA + recursive retry with backoff)
+  // Ironclad Push Engine
   async function pushToGitHub(retryCount = 0) {
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) return false;
@@ -508,7 +521,6 @@
     isSyncingOrPushing = true;
     document.getElementById('sync-status').textContent = retryCount > 0 ? `Auto-retry (${retryCount}/4)...` : 'Saving commit...';
 
-    // Refresh SHA before pushing
     await fetchLatestSha();
 
     const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`;
@@ -539,7 +551,6 @@
         isSyncingOrPushing = false;
         return true;
       } else if (res.status === 409 && retryCount < 4) {
-        // Concurrency conflict: wait slightly, re-fetch SHA and retry seamlessly
         await new Promise(r => setTimeout(r, 400 + (retryCount * 300)));
         return pushToGitHub(retryCount + 1);
       } else {
