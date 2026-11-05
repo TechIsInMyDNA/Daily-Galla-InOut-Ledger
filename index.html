@@ -56,7 +56,6 @@
     .sync-text { font-size: 0.72rem; color: var(--muted); font-family: monospace; }
     .kbd-tag { background: #1e293b; color: var(--primary); border: 1px solid #334155; padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; }
     
-    /* Shift Accordion Cards */
     .history-card { 
       background: #0b1120; 
       border: 1px solid var(--card-border); 
@@ -114,7 +113,7 @@
   <div class="card flex-between" style="padding: 10px 14px;">
     <div>
       <div style="font-weight: 800; font-size: 1.05rem; letter-spacing: 0.5px; color: var(--primary);">GALLA INOUT LEDGER</div>
-      <div id="sync-status" class="sync-text">Ready</div>
+      <div id="sync-status" class="sync-text">Connecting...</div>
     </div>
     <div style="display:flex; gap:6px; align-items:center;">
       <button class="btn btn-sm btn-primary" onclick="syncWithGitHub(true)">↻ Sync</button>
@@ -254,23 +253,28 @@
 </div>
 
 <script>
-  // Robust Binary Base64 Utilities (No unescape/atob character crashes)
-  function uint8ToBase64(bytes) {
-    let binary = '';
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(bytes[i]);
+  // Robust Universal Base64 Decoder
+  function safeBase64Decode(str) {
+    const cleanStr = str.replace(/\s/g, '');
+    try {
+      return decodeURIComponent(escape(atob(cleanStr)));
+    } catch (e) {
+      const binary = atob(cleanStr);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
     }
-    return btoa(binary);
   }
 
-  function base64ToUint8(base64) {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
+  function safeBase64Encode(str) {
+    try {
+      return btoa(unescape(encodeURIComponent(str)));
+    } catch (e) {
+      const bytes = new TextEncoder().encode(str);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary);
     }
-    return bytes;
   }
 
   // --- Military-Grade Web Crypto (PBKDF2 + AES-GCM 256-bit) ---
@@ -292,19 +296,30 @@
       const key = await this.deriveKey(passphrase, salt);
       const encoded = new TextEncoder().encode(plainText);
       const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+      
+      // Store d as normal Array for universal backward/forward compatibility
       return JSON.stringify({
         s: Array.from(salt),
         i: Array.from(iv),
-        d: uint8ToBase64(new Uint8Array(cipher))
+        d: Array.from(new Uint8Array(cipher))
       });
     },
     async decrypt(packedString, passphrase) {
-      const { s, i, d } = JSON.parse(packedString);
-      const salt = new Uint8Array(s);
-      const iv = new Uint8Array(i);
-      const data = base64ToUint8(d);
+      const parsed = JSON.parse(packedString);
+      const salt = new Uint8Array(parsed.s);
+      const iv = new Uint8Array(parsed.i);
+      
+      let cipherData;
+      if (Array.isArray(parsed.d)) {
+        cipherData = new Uint8Array(parsed.d);
+      } else {
+        const binary = atob(parsed.d);
+        cipherData = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) cipherData[i] = binary.charCodeAt(i);
+      }
+
       const key = await this.deriveKey(passphrase, salt);
-      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
+      const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipherData);
       return new TextDecoder().decode(decrypted);
     }
   };
@@ -315,7 +330,6 @@
   };
   let fileSha = null;
   let isSyncing = false;
-  let syncQueueTimer = null;
 
   function getConfig() {
     return {
@@ -327,10 +341,16 @@
   }
 
   function saveConfig() {
-    localStorage.setItem('gl_user', document.getElementById('cfg-user').value.trim());
-    localStorage.setItem('gl_repo', document.getElementById('cfg-repo').value.trim());
-    localStorage.setItem('gl_token', document.getElementById('cfg-token').value.trim());
-    localStorage.setItem('gl_pass', document.getElementById('cfg-pass').value.trim());
+    const u = document.getElementById('cfg-user').value.trim();
+    const r = document.getElementById('cfg-repo').value.trim();
+    const t = document.getElementById('cfg-token').value.trim();
+    const p = document.getElementById('cfg-pass').value.trim();
+
+    localStorage.setItem('gl_user', u);
+    localStorage.setItem('gl_repo', r);
+    localStorage.setItem('gl_token', t);
+    localStorage.setItem('gl_pass', p);
+
     toggleConfig();
     syncWithGitHub(true);
   }
@@ -456,7 +476,6 @@
     });
   }
 
-  // Local Storage Mirroring for Zero-Loss Offline Reliability
   function persistLocalState() {
     localStorage.setItem('gl_local_state', JSON.stringify(appState));
   }
@@ -473,7 +492,6 @@
     } catch (e) {}
   }
 
-  // Pure Cache-Busted SHA Fetch
   async function fetchLatestSha() {
     const cfg = getConfig();
     const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?_t=${Date.now()}`;
@@ -494,16 +512,7 @@
     return fileSha;
   }
 
-  // Schedule Sync via Background Queue
-  function scheduleBackgroundPush() {
-    persistLocalState();
-    if (syncQueueTimer) clearTimeout(syncQueueTimer);
-    syncQueueTimer = setTimeout(() => {
-      pushToGitHub();
-    }, 250);
-  }
-
-  // --- Robust GitHub Sync Engine ---
+  // --- GitHub Live Sync Engine ---
   async function syncWithGitHub(force = false) {
     if (isSyncing && !force) return;
     const cfg = getConfig();
@@ -528,7 +537,7 @@
       if (res.status === 200) {
         const json = await res.json();
         fileSha = json.sha;
-        const decodedContent = new TextDecoder().decode(base64ToUint8(json.content.replace(/\s/g, '')));
+        const decodedContent = safeBase64Decode(json.content);
         const decrypted = await CryptoEngine.decrypt(decodedContent, cfg.pass);
         appState = JSON.parse(decrypted);
         if (!appState.history) appState.history = [];
@@ -537,32 +546,33 @@
         renderUI();
         renderHistory();
       } else if (res.status === 404) {
+        // If file doesn't exist yet, initialize it
         await pushToGitHub();
       } else {
-        document.getElementById('sync-status').textContent = `Sync (${res.status})`;
+        document.getElementById('sync-status').textContent = `Sync Error (${res.status})`;
       }
     } catch (e) {
-      document.getElementById('sync-status').textContent = 'Offline (Local Safe)';
+      console.error(e);
+      document.getElementById('sync-status').textContent = 'Passphrase Incorrect';
     }
   }
 
-  // Bulletproof Push Engine with [skip ci] to prevent GitHub Actions Cancellations
   async function pushToGitHub(retryCount = 0) {
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) return false;
 
     isSyncing = true;
-    document.getElementById('sync-status').textContent = retryCount > 0 ? `Sync retry (${retryCount}/4)...` : 'Cloud saving...';
+    document.getElementById('sync-status').textContent = retryCount > 0 ? `Retrying sync (${retryCount}/4)...` : 'Cloud saving...';
 
     await fetchLatestSha();
     const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`;
     
     try {
       const encrypted = await CryptoEngine.encrypt(JSON.stringify(appState, null, 2), cfg.pass);
-      const encodedPayload = uint8ToBase64(new TextEncoder().encode(encrypted));
+      const encodedPayload = safeBase64Encode(encrypted);
 
       const payload = {
-        message: `Ledger Entry [skip ci] ${new Date().toISOString()}`,
+        message: `Ledger Update [skip ci] ${new Date().toISOString()}`,
         content: encodedPayload,
         sha: fileSha || undefined
       };
@@ -586,7 +596,7 @@
         await new Promise(r => setTimeout(r, 400 + (retryCount * 250)));
         return pushToGitHub(retryCount + 1);
       } else {
-        document.getElementById('sync-status').textContent = `Local Saved (Retrying...)`;
+        document.getElementById('sync-status').textContent = 'Commit failed (Check Token)';
         isSyncing = false;
         return false;
       }
@@ -595,13 +605,13 @@
         await new Promise(r => setTimeout(r, 500));
         return pushToGitHub(retryCount + 1);
       }
-      document.getElementById('sync-status').textContent = 'Saved Locally';
+      document.getElementById('sync-status').textContent = 'Connection Error';
       isSyncing = false;
       return false;
     }
   }
 
-  // --- Immediate UI (Zero Latency) Shift Actions ---
+  // --- Instant UI Shift Operations ---
   function startShift() {
     let openVal = parseFloat(document.getElementById('in-open-cash').value);
     if (isNaN(openVal)) {
@@ -621,10 +631,9 @@
     };
 
     document.getElementById('in-open-cash').value = '';
-    
-    // Instant UI Refresh + Background Queue
+    persistLocalState();
     renderUI();
-    scheduleBackgroundPush();
+    pushToGitHub();
 
     setTimeout(() => {
       const amt = document.getElementById('tx-amount');
@@ -646,7 +655,6 @@
     const type = document.getElementById('tx-type').value;
     const now = formatDateTime();
 
-    // Instant local state insertion
     appState.currentShift.entries.unshift({
       id: Date.now(),
       type,
@@ -658,9 +666,9 @@
     amtField.value = '';
     document.getElementById('tx-desc').value = '';
     
-    // Instant render, zero delay
+    persistLocalState();
     renderUI();
-    scheduleBackgroundPush();
+    pushToGitHub();
     amtField.focus();
   }
 
@@ -685,10 +693,10 @@
     appState.history.unshift({ ...appState.currentShift });
     appState.currentShift = null;
 
-    // Instant UI close
+    persistLocalState();
     renderUI();
     renderHistory();
-    scheduleBackgroundPush();
+    pushToGitHub();
   }
 
   function calculateShiftTotals(shift) {
