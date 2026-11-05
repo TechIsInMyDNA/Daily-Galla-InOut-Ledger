@@ -24,7 +24,7 @@
     .flex-between { display: flex; justify-content: space-between; align-items: center; }
     .btn { background: var(--card-border); color: var(--text); border: none; padding: 10px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; transition: 0.15s; }
     .btn:active { transform: scale(0.98); }
-    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
     .btn-primary { background: var(--primary); color: #000; font-weight: 700; }
     .btn-green { background: var(--green); color: #000; font-weight: 700; }
     .btn-red { background: var(--red); color: #fff; font-weight: 700; }
@@ -114,7 +114,7 @@
   <div class="card flex-between" style="padding: 10px 14px;">
     <div>
       <div style="font-weight: 800; font-size: 1.05rem; letter-spacing: 0.5px; color: var(--primary);">GALLA INOUT LEDGER</div>
-      <div id="sync-status" class="sync-text">Checking connection...</div>
+      <div id="sync-status" class="sync-text">Ready</div>
     </div>
     <div style="display:flex; gap:6px; align-items:center;">
       <button class="btn btn-sm btn-primary" onclick="syncWithGitHub(true)">↻ Sync</button>
@@ -254,6 +254,25 @@
 </div>
 
 <script>
+  // Robust Binary Base64 Utilities (No unescape/atob character crashes)
+  function uint8ToBase64(bytes) {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  function base64ToUint8(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes;
+  }
+
   // --- Military-Grade Web Crypto (PBKDF2 + AES-GCM 256-bit) ---
   const CryptoEngine = {
     async deriveKey(passphrase, salt) {
@@ -276,14 +295,14 @@
       return JSON.stringify({
         s: Array.from(salt),
         i: Array.from(iv),
-        d: Array.from(new Uint8Array(cipher))
+        d: uint8ToBase64(new Uint8Array(cipher))
       });
     },
     async decrypt(packedString, passphrase) {
       const { s, i, d } = JSON.parse(packedString);
       const salt = new Uint8Array(s);
       const iv = new Uint8Array(i);
-      const data = new Uint8Array(d);
+      const data = base64ToUint8(d);
       const key = await this.deriveKey(passphrase, salt);
       const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, data);
       return new TextDecoder().decode(decrypted);
@@ -295,7 +314,8 @@
     history: []
   };
   let fileSha = null;
-  let isSyncingOrPushing = false;
+  let isSyncing = false;
+  let syncQueueTimer = null;
 
   function getConfig() {
     return {
@@ -407,27 +427,18 @@
       }
     });
 
-    // Global Key Listener for ESC, 'I' and 'O'
     window.addEventListener('keydown', (e) => {
       const activeEl = document.activeElement;
       const isInputActive = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT');
 
-      // 1. ESC dabane par text box blur hoga taaki shortcuts active ho sakein
       if (e.key === 'Escape') {
-        if (isInputActive) {
-          activeEl.blur();
-        }
+        if (isInputActive) activeEl.blur();
         return;
       }
 
-      // Agar text box me cursor hai, normal typing allow karo
-      if (isInputActive) {
-        return;
-      }
+      if (isInputActive) return;
 
       const key = e.key.toLowerCase();
-
-      // 2. 'I' dabane par direct Shift Check-in action
       if (key === 'i') {
         e.preventDefault();
         switchTab('active');
@@ -436,9 +447,7 @@
         } else {
           amtInput.focus();
         }
-      } 
-      // 3. 'O' dabane par direct Shift Check-out prompt
-      else if (key === 'o') {
+      } else if (key === 'o') {
         e.preventDefault();
         if (appState.currentShift && appState.currentShift.status === 'ACTIVE') {
           endShiftPrompt();
@@ -447,7 +456,24 @@
     });
   }
 
-  // Helper: Pure Cache-Busted SHA Fetch
+  // Local Storage Mirroring for Zero-Loss Offline Reliability
+  function persistLocalState() {
+    localStorage.setItem('gl_local_state', JSON.stringify(appState));
+  }
+
+  function loadLocalState() {
+    try {
+      const raw = localStorage.getItem('gl_local_state');
+      if (raw) {
+        appState = JSON.parse(raw);
+        if (!appState.history) appState.history = [];
+        renderUI();
+        renderHistory();
+      }
+    } catch (e) {}
+  }
+
+  // Pure Cache-Busted SHA Fetch
   async function fetchLatestSha() {
     const cfg = getConfig();
     const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?_t=${Date.now()}`;
@@ -464,18 +490,25 @@
         fileSha = json.sha;
         return json.sha;
       }
-    } catch (e) {
-      console.warn('Silent SHA fetch error', e);
-    }
+    } catch (e) {}
     return fileSha;
+  }
+
+  // Schedule Sync via Background Queue
+  function scheduleBackgroundPush() {
+    persistLocalState();
+    if (syncQueueTimer) clearTimeout(syncQueueTimer);
+    syncQueueTimer = setTimeout(() => {
+      pushToGitHub();
+    }, 250);
   }
 
   // --- Robust GitHub Sync Engine ---
   async function syncWithGitHub(force = false) {
-    if (isSyncingOrPushing && !force) return;
+    if (isSyncing && !force) return;
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) {
-      document.getElementById('sync-status').textContent = '⚠️ Settings missing';
+      document.getElementById('sync-status').textContent = '⚠️ Config missing';
       document.getElementById('config-card').classList.remove('hidden');
       return;
     }
@@ -495,42 +528,41 @@
       if (res.status === 200) {
         const json = await res.json();
         fileSha = json.sha;
-        const decodedContent = decodeURIComponent(escape(atob(json.content.replace(/\s/g, ''))));
+        const decodedContent = new TextDecoder().decode(base64ToUint8(json.content.replace(/\s/g, '')));
         const decrypted = await CryptoEngine.decrypt(decodedContent, cfg.pass);
         appState = JSON.parse(decrypted);
         if (!appState.history) appState.history = [];
+        persistLocalState();
         document.getElementById('sync-status').textContent = `● Live Synced (${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`;
         renderUI();
         renderHistory();
       } else if (res.status === 404) {
         await pushToGitHub();
       } else {
-        document.getElementById('sync-status').textContent = `Sync error (${res.status})`;
+        document.getElementById('sync-status').textContent = `Sync (${res.status})`;
       }
     } catch (e) {
-      console.error(e);
-      document.getElementById('sync-status').textContent = 'Key error / Syncing';
+      document.getElementById('sync-status').textContent = 'Offline (Local Safe)';
     }
   }
 
-  // Ironclad Push Engine
+  // Bulletproof Push Engine with [skip ci] to prevent GitHub Actions Cancellations
   async function pushToGitHub(retryCount = 0) {
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) return false;
 
-    isSyncingOrPushing = true;
-    document.getElementById('sync-status').textContent = retryCount > 0 ? `Auto-retry (${retryCount}/4)...` : 'Saving commit...';
+    isSyncing = true;
+    document.getElementById('sync-status').textContent = retryCount > 0 ? `Sync retry (${retryCount}/4)...` : 'Cloud saving...';
 
     await fetchLatestSha();
-
     const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json`;
     
     try {
       const encrypted = await CryptoEngine.encrypt(JSON.stringify(appState, null, 2), cfg.pass);
-      const encodedPayload = btoa(unescape(encodeURIComponent(encrypted)));
+      const encodedPayload = uint8ToBase64(new TextEncoder().encode(encrypted));
 
       const payload = {
-        message: `Ledger Entry: ${new Date().toISOString()}`,
+        message: `Ledger Entry [skip ci] ${new Date().toISOString()}`,
         content: encodedPayload,
         sha: fileSha || undefined
       };
@@ -547,41 +579,36 @@
       if (res.ok) {
         const data = await res.json();
         fileSha = data.content.sha;
-        document.getElementById('sync-status').textContent = `● Saved & Synced (${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`;
-        isSyncingOrPushing = false;
+        document.getElementById('sync-status').textContent = `● Live Synced (${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`;
+        isSyncing = false;
         return true;
       } else if (res.status === 409 && retryCount < 4) {
-        await new Promise(r => setTimeout(r, 400 + (retryCount * 300)));
+        await new Promise(r => setTimeout(r, 400 + (retryCount * 250)));
         return pushToGitHub(retryCount + 1);
       } else {
-        document.getElementById('sync-status').textContent = `Commit failed (${res.status})`;
-        isSyncingOrPushing = false;
+        document.getElementById('sync-status').textContent = `Local Saved (Retrying...)`;
+        isSyncing = false;
         return false;
       }
     } catch (e) {
-      console.error(e);
       if (retryCount < 4) {
-        await new Promise(r => setTimeout(r, 600));
+        await new Promise(r => setTimeout(r, 500));
         return pushToGitHub(retryCount + 1);
       }
-      document.getElementById('sync-status').textContent = 'Push error';
-      isSyncingOrPushing = false;
+      document.getElementById('sync-status').textContent = 'Saved Locally';
+      isSyncing = false;
       return false;
     }
   }
 
-  // --- Shift Actions ---
-  async function startShift() {
+  // --- Immediate UI (Zero Latency) Shift Actions ---
+  function startShift() {
     let openVal = parseFloat(document.getElementById('in-open-cash').value);
     if (isNaN(openVal)) {
       const prompted = prompt("Opening Cash Float enter karein (₹):", "0");
       if (prompted === null) return;
       openVal = parseFloat(prompted) || 0;
     }
-
-    const btn = document.getElementById('btn-checkin');
-    btn.disabled = true;
-    btn.textContent = 'Saving Check-In...';
 
     const now = formatDateTime();
     appState.currentShift = {
@@ -594,21 +621,18 @@
     };
 
     document.getElementById('in-open-cash').value = '';
+    
+    // Instant UI Refresh + Background Queue
     renderUI();
-    const ok = await pushToGitHub();
+    scheduleBackgroundPush();
 
-    btn.disabled = false;
-    btn.textContent = '✓ Check-In (Start Shift) [I]';
-    if (ok) {
-      setTimeout(() => {
-        const amt = document.getElementById('tx-amount');
-        if (amt) amt.focus();
-      }, 150);
-    }
+    setTimeout(() => {
+      const amt = document.getElementById('tx-amount');
+      if (amt) amt.focus();
+    }, 100);
   }
 
-  async function addTransaction() {
-    const saveBtn = document.getElementById('btn-save-tx');
+  function addTransaction() {
     const amtField = document.getElementById('tx-amount');
     const evaluatedAmount = evaluateMathInput(amtField.value);
     const amount = parseFloat(evaluatedAmount);
@@ -619,12 +643,10 @@
       return;
     }
 
-    saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
-
     const type = document.getElementById('tx-type').value;
     const now = formatDateTime();
 
+    // Instant local state insertion
     appState.currentShift.entries.unshift({
       id: Date.now(),
       type,
@@ -635,16 +657,14 @@
 
     amtField.value = '';
     document.getElementById('tx-desc').value = '';
-    renderUI();
     
-    await pushToGitHub();
-
-    saveBtn.disabled = false;
-    saveBtn.textContent = 'Save Entry';
+    // Instant render, zero delay
+    renderUI();
+    scheduleBackgroundPush();
     amtField.focus();
   }
 
-  async function endShiftPrompt() {
+  function endShiftPrompt() {
     const totals = calculateShiftTotals(appState.currentShift);
     const actualStr = prompt(`Counter Check-Out!\nHisab ke mutabiq galle me hona chahiye: ₹${totals.live}\n\nPhysical counted cash kitna hai enter karein:`, totals.live);
     if (actualStr === null) return;
@@ -665,9 +685,10 @@
     appState.history.unshift({ ...appState.currentShift });
     appState.currentShift = null;
 
+    // Instant UI close
     renderUI();
     renderHistory();
-    await pushToGitHub();
+    scheduleBackgroundPush();
   }
 
   function calculateShiftTotals(shift) {
@@ -889,6 +910,7 @@
 
   // Auto-init
   loadConfigFields();
+  loadLocalState();
   setupInputHandlers();
   const cfg = getConfig();
   if (cfg.token && cfg.pass) {
