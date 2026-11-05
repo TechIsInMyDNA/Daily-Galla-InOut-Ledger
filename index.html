@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Daily Galla InOut Ledger</title>
+  <title>Daily Galla InOut Ledger v2.1</title>
   <style>
     :root {
       --bg: #090d16;
@@ -109,10 +109,12 @@
 <body>
 
 <div class="container">
-  <!-- Top Header -->
+  <!-- Top Header with Version Indicator -->
   <div class="card flex-between" style="padding: 10px 14px;">
     <div>
-      <div style="font-weight: 800; font-size: 1.05rem; letter-spacing: 0.5px; color: var(--primary);">GALLA INOUT LEDGER</div>
+      <div style="font-weight: 800; font-size: 1.05rem; letter-spacing: 0.5px; color: var(--primary);">
+        GALLA INOUT LEDGER <span style="font-size:0.65rem; color:var(--muted); font-weight:normal;">v2.1 [data-branch]</span>
+      </div>
       <div id="sync-status" class="sync-text">Connecting...</div>
     </div>
     <div style="display:flex; gap:6px; align-items:center;">
@@ -154,13 +156,11 @@
 
   <!-- ================= TAB 1: ACTIVE SHIFT VIEW ================= -->
   <div id="view-active" class="flex-between" style="flex-direction:column; gap:12px; width:100%;">
-    <!-- Live Status -->
     <div class="flex-between" style="width:100%; padding: 0 4px;">
       <span id="shift-badge" class="badge badge-closed">NO ACTIVE SHIFT</span>
       <span id="shift-time" style="font-size:0.75rem; color:var(--muted);"></span>
     </div>
 
-    <!-- 3-Column Real-time Counter Stats -->
     <div class="grid-3" style="width:100%;">
       <div class="stat-box">
         <label>Opening Galla</label>
@@ -176,7 +176,6 @@
       </div>
     </div>
 
-    <!-- Check-In Module -->
     <div id="checkin-card" class="card" style="width:100%;">
       <div class="flex-between" style="margin-bottom:8px;">
         <h3 style="font-size:0.95rem;">Solo Counter Check-In</h3>
@@ -190,7 +189,6 @@
       <button id="btn-checkin" class="btn btn-green" style="width:100%;" onclick="startShift()">✓ Check-In (Start Shift) [I]</button>
     </div>
 
-    <!-- Active Shift Entry Module (Strict TAB Navigation Loop) -->
     <div id="active-card" class="card hidden" style="width:100%;">
       <div class="flex-between" style="margin-bottom:12px;">
         <h3 style="font-size:0.95rem;">Log Galla Movement</h3>
@@ -216,7 +214,6 @@
       <button id="btn-save-tx" class="btn btn-primary" tabindex="4" style="width:100%;" onclick="addTransaction()">Save Entry</button>
     </div>
 
-    <!-- Shift Timeline Log -->
     <div class="card" style="width:100%;">
       <div class="flex-between" style="margin-bottom:8px;">
         <h3 style="font-size:0.9rem;">Current Shift Activity Log</h3>
@@ -235,7 +232,6 @@
       <span style="font-size:0.75rem; color:var(--muted);">Click card to expand | Share to WA</span>
     </div>
 
-    <!-- Live Partial Search Bar -->
     <div style="margin-bottom:12px;">
       <input 
         type="text" 
@@ -253,7 +249,9 @@
 </div>
 
 <script>
-  // Robust Universal Base64 Decoder
+  // Dedicated Branch for Live Ledger Data (Prevents GitHub Pages Rebuilds)
+  const DATA_BRANCH = 'data';
+
   function safeBase64Decode(str) {
     const cleanStr = str.replace(/\s/g, '');
     try {
@@ -277,7 +275,6 @@
     }
   }
 
-  // --- Military-Grade Web Crypto (PBKDF2 + AES-GCM 256-bit) ---
   const CryptoEngine = {
     async deriveKey(passphrase, salt) {
       const enc = new TextEncoder();
@@ -296,8 +293,6 @@
       const key = await this.deriveKey(passphrase, salt);
       const encoded = new TextEncoder().encode(plainText);
       const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-      
-      // Store d as normal Array for universal backward/forward compatibility
       return JSON.stringify({
         s: Array.from(salt),
         i: Array.from(iv),
@@ -341,15 +336,10 @@
   }
 
   function saveConfig() {
-    const u = document.getElementById('cfg-user').value.trim();
-    const r = document.getElementById('cfg-repo').value.trim();
-    const t = document.getElementById('cfg-token').value.trim();
-    const p = document.getElementById('cfg-pass').value.trim();
-
-    localStorage.setItem('gl_user', u);
-    localStorage.setItem('gl_repo', r);
-    localStorage.setItem('gl_token', t);
-    localStorage.setItem('gl_pass', p);
+    localStorage.setItem('gl_user', document.getElementById('cfg-user').value.trim());
+    localStorage.setItem('gl_repo', document.getElementById('cfg-repo').value.trim());
+    localStorage.setItem('gl_token', document.getElementById('cfg-token').value.trim());
+    localStorage.setItem('gl_pass', document.getElementById('cfg-pass').value.trim());
 
     toggleConfig();
     syncWithGitHub(true);
@@ -406,7 +396,6 @@
     return val;
   }
 
-  // --- Keyboard Shortcuts & TAB Loop ---
   function setupInputHandlers() {
     const amtInput = document.getElementById('tx-amount');
     const descInput = document.getElementById('tx-desc');
@@ -494,7 +483,7 @@
 
   async function fetchLatestSha() {
     const cfg = getConfig();
-    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?_t=${Date.now()}`;
+    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?ref=${DATA_BRANCH}&_t=${Date.now()}`;
     try {
       const res = await fetch(url, {
         cache: 'no-store',
@@ -512,7 +501,7 @@
     return fileSha;
   }
 
-  // --- GitHub Live Sync Engine ---
+  // Live Sync specifically from 'data' branch
   async function syncWithGitHub(force = false) {
     if (isSyncing && !force) return;
     const cfg = getConfig();
@@ -523,7 +512,7 @@
     }
 
     document.getElementById('sync-status').textContent = '⚡ Syncing...';
-    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?_t=${Date.now()}`;
+    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?ref=${DATA_BRANCH}&_t=${Date.now()}`;
 
     try {
       const res = await fetch(url, {
@@ -546,7 +535,7 @@
         renderUI();
         renderHistory();
       } else if (res.status === 404) {
-        // If file doesn't exist yet, initialize it
+        // If data.json does not exist yet on 'data' branch, create it
         await pushToGitHub();
       } else {
         document.getElementById('sync-status').textContent = `Sync Error (${res.status})`;
@@ -557,6 +546,7 @@
     }
   }
 
+  // Push commit targeted strictly to 'data' branch
   async function pushToGitHub(retryCount = 0) {
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) return false;
@@ -574,6 +564,7 @@
       const payload = {
         message: `Ledger Update [skip ci] ${new Date().toISOString()}`,
         content: encodedPayload,
+        branch: DATA_BRANCH,
         sha: fileSha || undefined
       };
 
@@ -611,7 +602,6 @@
     }
   }
 
-  // --- Instant UI Shift Operations ---
   function startShift() {
     let openVal = parseFloat(document.getElementById('in-open-cash').value);
     if (isNaN(openVal)) {
@@ -916,7 +906,6 @@
     }
   }
 
-  // Auto-init
   loadConfigFields();
   loadLocalState();
   setupInputHandlers();
