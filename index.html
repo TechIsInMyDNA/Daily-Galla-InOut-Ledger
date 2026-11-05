@@ -136,6 +136,10 @@
       <input type="text" id="cfg-repo" value="Daily-Galla-InOut-Ledger" />
     </div>
     <div class="input-group">
+      <label>Data Branch (Default: data)</label>
+      <input type="text" id="cfg-branch" value="data" />
+    </div>
+    <div class="input-group">
       <label>Fine-grained GitHub Token (Contents: Read/Write)</label>
       <input type="password" id="cfg-token" placeholder="github_pat_xxxx..." />
     </div>
@@ -253,7 +257,6 @@
 </div>
 
 <script>
-  // Robust Universal Base64 Decoder
   function safeBase64Decode(str) {
     const cleanStr = str.replace(/\s/g, '');
     try {
@@ -296,8 +299,6 @@
       const key = await this.deriveKey(passphrase, salt);
       const encoded = new TextEncoder().encode(plainText);
       const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
-      
-      // Store d as normal Array for universal backward/forward compatibility
       return JSON.stringify({
         s: Array.from(salt),
         i: Array.from(iv),
@@ -335,6 +336,7 @@
     return {
       user: localStorage.getItem('gl_user') || 'TechIsInMyDNA',
       repo: localStorage.getItem('gl_repo') || 'Daily-Galla-InOut-Ledger',
+      branch: localStorage.getItem('gl_branch') || 'data',
       token: localStorage.getItem('gl_token') || '',
       pass: localStorage.getItem('gl_pass') || ''
     };
@@ -343,11 +345,13 @@
   function saveConfig() {
     const u = document.getElementById('cfg-user').value.trim();
     const r = document.getElementById('cfg-repo').value.trim();
+    const b = document.getElementById('cfg-branch').value.trim() || 'data';
     const t = document.getElementById('cfg-token').value.trim();
     const p = document.getElementById('cfg-pass').value.trim();
 
     localStorage.setItem('gl_user', u);
     localStorage.setItem('gl_repo', r);
+    localStorage.setItem('gl_branch', b);
     localStorage.setItem('gl_token', t);
     localStorage.setItem('gl_pass', p);
 
@@ -359,6 +363,7 @@
     const cfg = getConfig();
     document.getElementById('cfg-user').value = cfg.user;
     document.getElementById('cfg-repo').value = cfg.repo;
+    document.getElementById('cfg-branch').value = cfg.branch;
     document.getElementById('cfg-token').value = cfg.token;
     document.getElementById('cfg-pass').value = cfg.pass;
   }
@@ -494,7 +499,7 @@
 
   async function fetchLatestSha() {
     const cfg = getConfig();
-    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?_t=${Date.now()}`;
+    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?ref=${cfg.branch}&_t=${Date.now()}`;
     try {
       const res = await fetch(url, {
         cache: 'no-store',
@@ -512,7 +517,7 @@
     return fileSha;
   }
 
-  // --- GitHub Live Sync Engine ---
+  // --- GitHub Live Sync Engine (Direct to data branch) ---
   async function syncWithGitHub(force = false) {
     if (isSyncing && !force) return;
     const cfg = getConfig();
@@ -523,7 +528,7 @@
     }
 
     document.getElementById('sync-status').textContent = '⚡ Syncing...';
-    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?_t=${Date.now()}`;
+    const url = `https://api.github.com/repos/${cfg.user}/${cfg.repo}/contents/data.json?ref=${cfg.branch}&_t=${Date.now()}`;
 
     try {
       const res = await fetch(url, {
@@ -546,7 +551,6 @@
         renderUI();
         renderHistory();
       } else if (res.status === 404) {
-        // If file doesn't exist yet, initialize it
         await pushToGitHub();
       } else {
         document.getElementById('sync-status').textContent = `Sync Error (${res.status})`;
@@ -574,6 +578,7 @@
       const payload = {
         message: `Ledger Update [skip ci] ${new Date().toISOString()}`,
         content: encodedPayload,
+        branch: cfg.branch,
         sha: fileSha || undefined
       };
 
@@ -596,7 +601,7 @@
         await new Promise(r => setTimeout(r, 400 + (retryCount * 250)));
         return pushToGitHub(retryCount + 1);
       } else {
-        document.getElementById('sync-status').textContent = 'Commit failed (Check Token)';
+        document.getElementById('sync-status').textContent = 'Commit failed (Check Token/Branch)';
         isSyncing = false;
         return false;
       }
