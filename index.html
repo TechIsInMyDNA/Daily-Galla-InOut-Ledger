@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Daily Galla InOut Ledger v2.1</title>
+  <title>Daily Galla InOut Ledger</title>
   <style>
     :root {
       --bg: #090d16;
@@ -109,12 +109,10 @@
 <body>
 
 <div class="container">
-  <!-- Top Header with Version Indicator -->
+  <!-- Clean Top Header -->
   <div class="card flex-between" style="padding: 10px 14px;">
     <div>
-      <div style="font-weight: 800; font-size: 1.05rem; letter-spacing: 0.5px; color: var(--primary);">
-        GALLA INOUT LEDGER <span style="font-size:0.65rem; color:var(--muted); font-weight:normal;">v2.1 [data-branch]</span>
-      </div>
+      <div style="font-weight: 800; font-size: 1.05rem; letter-spacing: 0.5px; color: var(--primary);">GALLA INOUT LEDGER</div>
       <div id="sync-status" class="sync-text">Connecting...</div>
     </div>
     <div style="display:flex; gap:6px; align-items:center;">
@@ -249,7 +247,7 @@
 </div>
 
 <script>
-  // Dedicated Branch for Live Ledger Data (Prevents GitHub Pages Rebuilds)
+  // Live Ledger Data branch setup (Deployment trigger nahi hone dega)
   const DATA_BRANCH = 'data';
 
   function safeBase64Decode(str) {
@@ -501,7 +499,6 @@
     return fileSha;
   }
 
-  // Live Sync specifically from 'data' branch
   async function syncWithGitHub(force = false) {
     if (isSyncing && !force) return;
     const cfg = getConfig();
@@ -535,7 +532,6 @@
         renderUI();
         renderHistory();
       } else if (res.status === 404) {
-        // If data.json does not exist yet on 'data' branch, create it
         await pushToGitHub();
       } else {
         document.getElementById('sync-status').textContent = `Sync Error (${res.status})`;
@@ -546,7 +542,6 @@
     }
   }
 
-  // Push commit targeted strictly to 'data' branch
   async function pushToGitHub(retryCount = 0) {
     const cfg = getConfig();
     if (!cfg.token || !cfg.pass) return false;
