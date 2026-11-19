@@ -273,6 +273,28 @@
     }
   }
 
+  // Silent Auto-Copy to Clipboard Helper
+  function copyTextSilently(text) {
+    if (!text) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).catch(() => fallbackCopyText(text));
+    } else {
+      fallbackCopyText(text);
+    }
+  }
+
+  function fallbackCopyText(text) {
+    const temp = document.createElement('textarea');
+    temp.value = text;
+    temp.style.position = 'fixed';
+    temp.style.opacity = '0';
+    document.body.appendChild(temp);
+    temp.focus();
+    temp.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    document.body.removeChild(temp);
+  }
+
   const CryptoEngine = {
     async deriveKey(passphrase, salt) {
       const enc = new TextEncoder();
@@ -630,12 +652,16 @@
     const amtField = document.getElementById('tx-amount');
     const evaluatedAmount = evaluateMathInput(amtField.value);
     const amount = parseFloat(evaluatedAmount);
-    const desc = document.getElementById('tx-desc').value.trim();
+    const descField = document.getElementById('tx-desc');
+    const desc = descField.value.trim();
 
     if (!amount || amount <= 0 || !desc) {
       alert('Kripya valid amount aur description fill karein!');
       return;
     }
+
+    // Auto-copy last typed description to clipboard for Ctrl+V
+    copyTextSilently(desc);
 
     const type = document.getElementById('tx-type').value;
     const now = formatDateTime();
@@ -649,7 +675,7 @@
     });
 
     amtField.value = '';
-    document.getElementById('tx-desc').value = '';
+    descField.value = '';
     
     persistLocalState();
     renderUI();
