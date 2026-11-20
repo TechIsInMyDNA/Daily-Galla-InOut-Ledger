@@ -28,9 +28,10 @@
     .btn-primary { background: var(--primary); color: #000; font-weight: 700; }
     .btn-green { background: var(--green); color: #000; font-weight: 700; }
     .btn-red { background: var(--red); color: #fff; font-weight: 700; }
+    .btn-amber { background: var(--amber); color: #000; font-weight: 700; }
     .btn-wa { background: #25D366; color: #000; font-weight: 700; }
     .btn-sm { padding: 5px 10px; font-size: 0.75rem; border-radius: 6px; }
-    .tab-btn { flex: 1; padding: 10px; background: transparent; border: 1px solid var(--card-border); color: var(--muted); border-radius: 8px; font-weight: 700; font-size: 0.82rem; cursor: pointer; }
+    .tab-btn { flex: 1; padding: 10px 6px; background: transparent; border: 1px solid var(--card-border); color: var(--muted); border-radius: 8px; font-weight: 700; font-size: 0.78rem; cursor: pointer; text-align: center; }
     .tab-btn.active { background: var(--card); color: var(--primary); border-color: var(--primary); }
     .input-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
     label { font-size: 0.72rem; text-transform: uppercase; color: var(--muted); font-weight: 700; letter-spacing: 0.5px; }
@@ -38,6 +39,7 @@
     input:focus, select:focus { border-color: var(--primary); outline: none; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 6px; }
     .stat-box { background: #0b1120; border: 1px solid var(--card-border); padding: 10px; border-radius: 8px; text-align: center; }
     .stat-val { font-size: 1.15rem; font-weight: 800; margin-top: 4px; }
     .c-green { color: var(--green); }
@@ -104,6 +106,18 @@
       border-radius: 4px;
       border: 1px solid rgba(245, 158, 11, 0.5);
     }
+
+    .day-pill {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0b1120;
+      border: 1px solid var(--card-border);
+      padding: 8px 10px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      font-size: 0.82rem;
+    }
   </style>
 </head>
 <body>
@@ -146,10 +160,11 @@
     <button class="btn btn-primary" style="width:100%;" onclick="saveConfig()">Lock & Connect</button>
   </div>
 
-  <!-- Tab Switcher -->
-  <div style="display:flex; gap:8px;">
+  <!-- 3-Tab Switcher -->
+  <div style="display:flex; gap:6px;">
     <button id="tab-active-btn" class="tab-btn active" onclick="switchTab('active')">⚡ Active Shift</button>
-    <button id="tab-history-btn" class="tab-btn" onclick="switchTab('history')">📜 Past Shifts History (<span id="history-count">0</span>)</button>
+    <button id="tab-history-btn" class="tab-btn" onclick="switchTab('history')">📜 History (<span id="history-count">0</span>)</button>
+    <button id="tab-chai-btn" class="tab-btn" onclick="switchTab('chai')">☕ Atul Chai (<span id="chai-due-badge">₹0</span>)</button>
   </div>
 
   <!-- ================= TAB 1: ACTIVE SHIFT VIEW ================= -->
@@ -242,6 +257,96 @@
 
     <div id="history-container">
       <div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:12px;">No archived shifts yet.</div>
+    </div>
+  </div>
+
+  <!-- ================= TAB 3: ATUL CHAIWALA LEDGER ================= -->
+  <div id="view-chai" class="hidden" style="display:flex; flex-direction:column; gap:12px; width:100%;">
+    <!-- Top Summary Card -->
+    <div class="card">
+      <div class="flex-between" style="margin-bottom:12px;">
+        <div>
+          <h3 style="font-size:0.98rem; color:var(--amber);">☕ ATUL CHAIWALA HISAAB</h3>
+          <div style="font-size:0.72rem; color:var(--muted);">Daily Chai Cups & Payment Tracker</div>
+        </div>
+        <button class="btn btn-sm" onclick="setChaiRate()" style="border: 1px solid var(--card-border);">
+          Rate: <span id="chai-rate-display" class="c-amber">₹10</span>/cup ⚙️
+        </button>
+      </div>
+
+      <!-- 3-Column Chai Stats -->
+      <div class="grid-3">
+        <div class="stat-box">
+          <label>Total Cups</label>
+          <div id="chai-stat-cups" class="stat-val">0</div>
+        </div>
+        <div class="stat-box">
+          <label>Total Bill</label>
+          <div id="chai-stat-bill" class="stat-val c-primary">₹0</div>
+        </div>
+        <div class="stat-box" style="border-color: rgba(245, 158, 11, 0.4);">
+          <label style="color: var(--amber);">Baki (Due)</label>
+          <div id="chai-stat-due" class="stat-val c-amber">₹0</div>
+        </div>
+      </div>
+
+      <!-- Quick Add Chai Cups -->
+      <div style="margin-top:14px;">
+        <label style="display:block; margin-bottom:6px;">Add Chai Cups (Kitni Chai Diya)</label>
+        <div class="grid-4">
+          <button class="btn btn-amber" onclick="addChaiCups(1)">+1 Cup</button>
+          <button class="btn btn-amber" onclick="addChaiCups(2)">+2 Cups</button>
+          <button class="btn btn-amber" onclick="addChaiCups(3)">+3 Cups</button>
+          <div style="display:flex; gap:4px;">
+            <input type="number" id="custom-chai-cups" placeholder="Cups" style="padding:8px; font-size:0.85rem;" onkeydown="if(event.key==='Enter'){addCustomChai();}" />
+            <button class="btn btn-primary btn-sm" onclick="addCustomChai()">+</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Payment Given to Atul Card -->
+    <div class="card">
+      <h3 style="font-size:0.9rem; margin-bottom:10px; color:var(--green);">💵 Atul ko Payment Diya (Minus Balance)</h3>
+      <div class="grid-2">
+        <div class="input-group" style="margin-bottom:6px;">
+          <label>Paid Amount (₹)</label>
+          <input type="number" id="chai-pay-amount" placeholder="e.g. 200" />
+        </div>
+        <div class="input-group" style="margin-bottom:6px;">
+          <label>Payment Note</label>
+          <input type="text" id="chai-pay-note" placeholder="Galla se / Online" value="Chai Payment" />
+        </div>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; margin-top:4px;">
+        <input type="checkbox" id="chai-sync-galla" checked style="width:16px; height:16px; accent-color:var(--primary);" />
+        <label for="chai-sync-galla" style="text-transform:none; font-size:0.78rem; color:var(--text); cursor:pointer;">
+          Active Shift ke Galla Cash OUT me bhi auto-minus karein
+        </label>
+      </div>
+      <button class="btn btn-green" style="width:100%;" onclick="payAtulChai()">✓ Record Payment</button>
+    </div>
+
+    <!-- Day-Wise Summary -->
+    <div class="card">
+      <div class="flex-between" style="margin-bottom:8px;">
+        <h3 style="font-size:0.9rem;">📅 Day-Wise Chai Summary</h3>
+        <button class="btn btn-wa btn-sm" onclick="shareChaiReportWA()">📤 Share Hisaab</button>
+      </div>
+      <div id="chai-daywise-list">
+        <div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:10px;">Abhi tak koi chai entry nahi hai.</div>
+      </div>
+    </div>
+
+    <!-- Detailed Chai & Payment Log -->
+    <div class="card">
+      <div class="flex-between" style="margin-bottom:8px;">
+        <h3 style="font-size:0.9rem;">📜 Recent Chai & Payment Logs</h3>
+        <span id="chai-log-count" style="font-size:0.75rem; color:var(--muted);">0 logs</span>
+      </div>
+      <div id="chai-logs-list">
+        <div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:10px;">No logs yet.</div>
+      </div>
     </div>
   </div>
 </div>
@@ -341,10 +446,26 @@
 
   let appState = {
     currentShift: null,
-    history: []
+    history: [],
+    atulChai: {
+      rate: 10,
+      logs: []
+    }
   };
   let fileSha = null;
   let isSyncing = false;
+
+  function ensureChaiState() {
+    if (!appState.atulChai) {
+      appState.atulChai = { rate: 10, logs: [] };
+    }
+    if (typeof appState.atulChai.rate !== 'number' || appState.atulChai.rate <= 0) {
+      appState.atulChai.rate = 10;
+    }
+    if (!Array.isArray(appState.atulChai.logs)) {
+      appState.atulChai.logs = [];
+    }
+  }
 
   function getConfig() {
     return {
@@ -378,21 +499,29 @@
   }
 
   function switchTab(tab) {
+    document.getElementById('view-active').classList.add('hidden');
+    document.getElementById('view-history').classList.add('hidden');
+    document.getElementById('view-chai').classList.add('hidden');
+
+    document.getElementById('tab-active-btn').classList.remove('active');
+    document.getElementById('tab-history-btn').classList.remove('active');
+    document.getElementById('tab-chai-btn').classList.remove('active');
+
     if (tab === 'active') {
       document.getElementById('view-active').classList.remove('hidden');
-      document.getElementById('view-history').classList.add('hidden');
       document.getElementById('tab-active-btn').classList.add('active');
-      document.getElementById('tab-history-btn').classList.remove('active');
-    } else {
-      document.getElementById('view-active').classList.add('hidden');
+    } else if (tab === 'history') {
       document.getElementById('view-history').classList.remove('hidden');
-      document.getElementById('tab-active-btn').classList.remove('active');
       document.getElementById('tab-history-btn').classList.add('active');
       renderHistory();
       setTimeout(() => {
         const sInput = document.getElementById('history-search-input');
         if (sInput) sInput.focus();
       }, 100);
+    } else if (tab === 'chai') {
+      document.getElementById('view-chai').classList.remove('hidden');
+      document.getElementById('tab-chai-btn').classList.add('active');
+      renderChaiUI();
     }
   }
 
@@ -400,6 +529,10 @@
     const d = date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
     const t = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
     return `${d}, ${t}`;
+  }
+
+  function formatDayKey(date = new Date()) {
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   }
 
   function evaluateMathInput(val) {
@@ -495,8 +628,10 @@
       if (raw) {
         appState = JSON.parse(raw);
         if (!appState.history) appState.history = [];
+        ensureChaiState();
         renderUI();
         renderHistory();
+        renderChaiUI();
       }
     } catch (e) {}
   }
@@ -549,10 +684,12 @@
         const decrypted = await CryptoEngine.decrypt(decodedContent, cfg.pass);
         appState = JSON.parse(decrypted);
         if (!appState.history) appState.history = [];
+        ensureChaiState();
         persistLocalState();
         document.getElementById('sync-status').textContent = `● Live Synced (${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`;
         renderUI();
         renderHistory();
+        renderChaiUI();
       } else if (res.status === 404) {
         await pushToGitHub();
       } else {
@@ -619,6 +756,234 @@
     }
   }
 
+  // ==================== ATUL CHAIWALA FUNCTIONS ====================
+  function setChaiRate() {
+    ensureChaiState();
+    const newRateStr = prompt("1 Cup Chai ka rate set karein (₹):", appState.atulChai.rate);
+    if (newRateStr === null) return;
+    const rate = parseFloat(newRateStr);
+    if (!rate || rate <= 0) {
+      alert("Valid rate enter karein!");
+      return;
+    }
+    appState.atulChai.rate = rate;
+    persistLocalState();
+    renderChaiUI();
+    pushToGitHub();
+  }
+
+  function addChaiCups(cups) {
+    ensureChaiState();
+    const rate = appState.atulChai.rate;
+    const totalAmt = cups * rate;
+    const now = new Date();
+
+    appState.atulChai.logs.unshift({
+      id: Date.now(),
+      kind: 'CHAI',
+      cups: cups,
+      rate: rate,
+      amount: totalAmt,
+      dayKey: formatDayKey(now),
+      timestamp: formatDateTime(now)
+    });
+
+    persistLocalState();
+    renderChaiUI();
+    pushToGitHub();
+  }
+
+  function addCustomChai() {
+    const inp = document.getElementById('custom-chai-cups');
+    const cups = parseInt(inp.value);
+    if (!cups || cups <= 0) {
+      alert("Kitni chai aayi woh number daalein!");
+      return;
+    }
+    inp.value = '';
+    addChaiCups(cups);
+  }
+
+  function payAtulChai() {
+    ensureChaiState();
+    const amtInp = document.getElementById('chai-pay-amount');
+    const noteInp = document.getElementById('chai-pay-note');
+    const syncGalla = document.getElementById('chai-sync-galla').checked;
+
+    const amount = parseFloat(amtInp.value);
+    const note = noteInp.value.trim() || 'Atul Chai Payment';
+
+    if (!amount || amount <= 0) {
+      alert("Valid payment amount enter karein!");
+      return;
+    }
+
+    const now = new Date();
+    appState.atulChai.logs.unshift({
+      id: Date.now(),
+      kind: 'PAY',
+      amount: amount,
+      note: note,
+      dayKey: formatDayKey(now),
+      timestamp: formatDateTime(now)
+    });
+
+    // Optional auto-entry into Active Galla Shift Cash OUT
+    if (syncGalla && appState.currentShift && appState.currentShift.status === 'ACTIVE') {
+      appState.currentShift.entries.unshift({
+        id: Date.now() + 1,
+        type: 'OUT',
+        amount: amount,
+        desc: `Atul Chaiwala (${note})`,
+        timestamp: formatDateTime(now)
+      });
+      renderUI();
+    }
+
+    amtInp.value = '';
+    persistLocalState();
+    renderChaiUI();
+    pushToGitHub();
+  }
+
+  function deleteChaiLog(id) {
+    if (!confirm("Kya aap is chai/payment entry ko delete karna chahte hain?")) return;
+    ensureChaiState();
+    appState.atulChai.logs = appState.atulChai.logs.filter(item => item.id !== id);
+    persistLocalState();
+    renderChaiUI();
+    pushToGitHub();
+  }
+
+  function calculateChaiTotals() {
+    ensureChaiState();
+    let totalCups = 0;
+    let totalBill = 0;
+    let totalPaid = 0;
+    const dayMap = {};
+
+    // Process oldest to newest for clean day grouping
+    [...appState.atulChai.logs].reverse().forEach(item => {
+      if (item.kind === 'CHAI') {
+        totalCups += item.cups;
+        totalBill += item.amount;
+        if (!dayMap[item.dayKey]) {
+          dayMap[item.dayKey] = { cups: 0, amount: 0 };
+        }
+        dayMap[item.dayKey].cups += item.cups;
+        dayMap[item.dayKey].amount += item.amount;
+      } else if (item.kind === 'PAY') {
+        totalPaid += item.amount;
+      }
+    });
+
+    return {
+      totalCups,
+      totalBill,
+      totalPaid,
+      due: totalBill - totalPaid,
+      dayMap
+    };
+  }
+
+  function renderChaiUI() {
+    ensureChaiState();
+    const totals = calculateChaiTotals();
+
+    document.getElementById('chai-rate-display').textContent = `₹${appState.atulChai.rate}`;
+    document.getElementById('chai-stat-cups').textContent = `${totals.totalCups}`;
+    document.getElementById('chai-stat-bill').textContent = `₹${totals.totalBill}`;
+    document.getElementById('chai-stat-due').textContent = `₹${totals.due}`;
+    document.getElementById('chai-due-badge').textContent = `₹${totals.due}`;
+
+    // Render Day-Wise Summary (Newest Day First)
+    const dayListEl = document.getElementById('chai-daywise-list');
+    const dayKeys = Object.keys(totals.dayMap).reverse();
+    if (dayKeys.length === 0) {
+      dayListEl.innerHTML = `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:10px;">Abhi tak koi chai entry nahi hai.</div>`;
+    } else {
+      dayListEl.innerHTML = dayKeys.map(day => {
+        const d = totals.dayMap[day];
+        return `
+          <div class="day-pill">
+            <span style="font-weight:700; color:var(--text);">${day}</span>
+            <span>
+              <span class="badge badge-amber" style="margin-right:6px;">${d.cups} Cups</span>
+              <strong class="c-primary">₹${d.amount}</strong>
+            </span>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Render Recent Logs
+    const logsEl = document.getElementById('chai-logs-list');
+    const logs = appState.atulChai.logs;
+    document.getElementById('chai-log-count').textContent = `${logs.length} logs`;
+
+    if (logs.length === 0) {
+      logsEl.innerHTML = `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:10px;">No logs yet.</div>`;
+      return;
+    }
+
+    logsEl.innerHTML = logs.map(item => {
+      if (item.kind === 'CHAI') {
+        return `
+          <div class="log-item">
+            <div>
+              <div class="log-desc">☕ +${item.cups} Cup${item.cups > 1 ? 's' : ''} <span style="font-size:0.75rem; color:var(--muted);">(@ ₹${item.rate})</span></div>
+              <div class="log-meta">${item.timestamp}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-weight:800; font-size:0.9rem;" class="c-amber">+₹${item.amount}</span>
+              <button class="btn btn-sm" style="padding:2px 6px; font-size:0.7rem; color:var(--muted);" onclick="deleteChaiLog(${item.id})">✕</button>
+            </div>
+          </div>
+        `;
+      } else {
+        return `
+          <div class="log-item">
+            <div>
+              <div class="log-desc c-green">💵 Payment: ${item.note}</div>
+              <div class="log-meta">${item.timestamp}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-weight:800; font-size:0.9rem;" class="c-green">-₹${item.amount}</span>
+              <button class="btn btn-sm" style="padding:2px 6px; font-size:0.7rem; color:var(--muted);" onclick="deleteChaiLog(${item.id})">✕</button>
+            </div>
+          </div>
+        `;
+      }
+    }).join('');
+  }
+
+  function shareChaiReportWA() {
+    const totals = calculateChaiTotals();
+    let msg = `☕ *ATUL CHAIWALA HISAAB REPORT*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `🍵 *Total Chai Cups:* ${totals.totalCups} Cups (@ ₹${appState.atulChai.rate})\n`;
+    msg += `💰 *Total Chai Bill:* ₹${totals.totalBill}\n`;
+    msg += `💵 *Total Paid:* ₹${totals.totalPaid}\n`;
+    msg += `📌 *Baki Balance (Due):* *₹${totals.due}*\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `📅 *DAY-WISE BREAKDOWN:*\n`;
+
+    const dayKeys = Object.keys(totals.dayMap).reverse().slice(0, 15);
+    if (dayKeys.length === 0) {
+      msg += `_No entries._\n`;
+    } else {
+      dayKeys.forEach(day => {
+        const d = totals.dayMap[day];
+        msg += `• ${day}: ${d.cups} Cups = *₹${d.amount}*\n`;
+      });
+    }
+    msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
+    msg += `_Daily Galla InOut Ledger_`;
+
+    window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
+  }
+
+  // ==================== EXISTING SHIFT FUNCTIONS ====================
   function startShift() {
     let openVal = parseFloat(document.getElementById('in-open-cash').value);
     if (isNaN(openVal)) {
