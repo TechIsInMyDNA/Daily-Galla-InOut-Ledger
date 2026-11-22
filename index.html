@@ -37,6 +37,7 @@
     label { font-size: 0.72rem; text-transform: uppercase; color: var(--muted); font-weight: 700; letter-spacing: 0.5px; }
     input, select { background: #0b1120; border: 1px solid var(--card-border); color: #fff; padding: 10px; border-radius: 8px; font-size: 0.95rem; width: 100%; }
     input:focus, select:focus { border-color: var(--primary); outline: none; }
+    input[type="date"] { color-scheme: dark; font-size: 0.8rem; padding: 6px 8px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
     .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1.3fr; gap: 6px; }
@@ -117,6 +118,29 @@
       border-radius: 8px;
       margin-bottom: 6px;
       font-size: 0.82rem;
+    }
+
+    .date-filter-bar {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      background: #0b1120;
+      border: 1px solid var(--card-border);
+      padding: 7px 8px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+    .date-filter-field {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .date-filter-field span {
+      font-size: 0.62rem;
+      color: var(--muted);
+      font-weight: 700;
+      text-transform: uppercase;
     }
   </style>
 </head>
@@ -330,12 +354,28 @@
       <button id="btn-chai-pay" class="btn btn-green" tabindex="14" style="width:100%;" onclick="payAtulChai()">✓ Record Payment</button>
     </div>
 
-    <!-- Day-Wise Summary -->
+    <!-- Day-Wise Summary with Custom Date Selection -->
     <div class="card">
       <div class="flex-between" style="margin-bottom:8px;">
         <h3 style="font-size:0.9rem;">📅 Day-Wise Chai Summary</h3>
         <button class="btn btn-wa btn-sm" tabindex="-1" onclick="shareChaiReportWA()">📤 Share Hisaab</button>
       </div>
+
+      <!-- Custom Date Range Filter -->
+      <div class="date-filter-bar">
+        <div class="date-filter-field">
+          <span>From Date</span>
+          <input type="date" id="chai-filter-from" onchange="renderChaiUI()" />
+        </div>
+        <div class="date-filter-field">
+          <span>To Date</span>
+          <input type="date" id="chai-filter-to" onchange="renderChaiUI()" />
+        </div>
+        <button id="chai-filter-clear" class="btn btn-sm hidden" tabindex="-1" onclick="clearChaiDateFilter()" title="Clear Date Filter" style="align-self:flex-end; padding:7px 9px;">✕</button>
+      </div>
+
+      <div id="chai-filter-summary" class="hidden" style="font-size:0.75rem; color:var(--amber); background:rgba(245, 158, 11, 0.1); border:1px solid rgba(245, 158, 11, 0.3); padding:6px 10px; border-radius:6px; margin-bottom:8px; font-weight:700;"></div>
+
       <div id="chai-daywise-list">
         <div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:10px;">Abhi tak koi chai entry nahi hai.</div>
       </div>
@@ -538,6 +578,37 @@
 
   function formatDayKey(date = new Date()) {
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  // Helper: Parse item date to YYYY-MM-DD for accurate date-range filtering
+  function getItemIsoDate(item) {
+    if (item && typeof item.id === 'number') {
+      const dt = new Date(item.id);
+      if (!isNaN(dt.getTime())) {
+        const y = dt.getFullYear();
+        const m = String(dt.getMonth() + 1).padStart(2, '0');
+        const d = String(dt.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+    if (item && item.dayKey) {
+      const parsed = new Date(item.dayKey);
+      if (!isNaN(parsed.getTime())) {
+        const y = parsed.getFullYear();
+        const m = String(parsed.getMonth() + 1).padStart(2, '0');
+        const d = String(parsed.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+    return '';
+  }
+
+  function formatIsoToReadable(isoStr) {
+    if (!isoStr) return '';
+    const parts = isoStr.split('-');
+    if (parts.length !== 3) return isoStr;
+    const dt = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+    return formatDayKey(dt);
   }
 
   function evaluateMathInput(val) {
@@ -934,7 +1005,27 @@
     pushToGitHub();
   }
 
-  function calculateChaiTotals() {
+  function clearChaiDateFilter() {
+    const fFrom = document.getElementById('chai-filter-from');
+    const fTo = document.getElementById('chai-filter-to');
+    if (fFrom) fFrom.value = '';
+    if (fTo) fTo.value = '';
+    renderChaiUI();
+  }
+
+  function getChaiDateFilter() {
+    const fFromEl = document.getElementById('chai-filter-from');
+    const fToEl = document.getElementById('chai-filter-to');
+    const fromVal = fFromEl ? fFromEl.value : '';
+    const toVal = fToEl ? fToEl.value : '';
+    return {
+      from: fromVal,
+      to: toVal,
+      isActive: Boolean(fromVal || toVal)
+    };
+  }
+
+  function calculateChaiTotals(filter = { from: '', to: '', isActive: false }) {
     ensureChaiState();
     let totalCups = 0;
     let totalBill = 0;
@@ -942,6 +1033,12 @@
     const dayMap = {};
 
     [...appState.atulChai.logs].reverse().forEach(item => {
+      if (filter.isActive) {
+        const itemIso = getItemIsoDate(item);
+        if (filter.from && itemIso && itemIso < filter.from) return;
+        if (filter.to && itemIso && itemIso > filter.to) return;
+      }
+
       if (item.kind === 'CHAI') {
         totalCups += item.cups;
         totalBill += item.amount;
@@ -966,21 +1063,45 @@
 
   function renderChaiUI() {
     ensureChaiState();
-    const totals = calculateChaiTotals();
 
+    // Overall stats remain untouched for top header & cards
+    const overallTotals = calculateChaiTotals({ from: '', to: '', isActive: false });
     document.getElementById('chai-rate-display').textContent = `₹${appState.atulChai.rate}`;
-    document.getElementById('chai-stat-cups').textContent = `${totals.totalCups}`;
-    document.getElementById('chai-stat-bill').textContent = `₹${totals.totalBill}`;
-    document.getElementById('chai-stat-due').textContent = `₹${totals.due}`;
-    document.getElementById('chai-due-badge').textContent = `₹${totals.due}`;
+    document.getElementById('chai-stat-cups').textContent = `${overallTotals.totalCups}`;
+    document.getElementById('chai-stat-bill').textContent = `₹${overallTotals.totalBill}`;
+    document.getElementById('chai-stat-due').textContent = `₹${overallTotals.due}`;
+    document.getElementById('chai-due-badge').textContent = `₹${overallTotals.due}`;
+
+    // Filtered Day-Wise Summary
+    const filter = getChaiDateFilter();
+    const clearBtn = document.getElementById('chai-filter-clear');
+    const filterSummaryEl = document.getElementById('chai-filter-summary');
+
+    if (clearBtn) {
+      if (filter.isActive) clearBtn.classList.remove('hidden');
+      else clearBtn.classList.add('hidden');
+    }
+
+    const filteredTotals = calculateChaiTotals(filter);
+
+    if (filterSummaryEl) {
+      if (filter.isActive) {
+        const fromText = filter.from ? formatIsoToReadable(filter.from) : 'Start';
+        const toText = filter.to ? formatIsoToReadable(filter.to) : 'Today';
+        filterSummaryEl.classList.remove('hidden');
+        filterSummaryEl.textContent = `Selected (${fromText} ➔ ${toText}): ${filteredTotals.totalCups} Cups | Bill: ₹${filteredTotals.totalBill} | Paid: ₹${filteredTotals.totalPaid}`;
+      } else {
+        filterSummaryEl.classList.add('hidden');
+      }
+    }
 
     const dayListEl = document.getElementById('chai-daywise-list');
-    const dayKeys = Object.keys(totals.dayMap).reverse();
+    const dayKeys = Object.keys(filteredTotals.dayMap).reverse();
     if (dayKeys.length === 0) {
-      dayListEl.innerHTML = `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:10px;">Abhi tak koi chai entry nahi hai.</div>`;
+      dayListEl.innerHTML = `<div style="color:var(--muted); font-size:0.8rem; text-align:center; padding:10px;">${filter.isActive ? 'Is date range me koi chai entry nahi hai.' : 'Abhi tak koi chai entry nahi hai.'}</div>`;
     } else {
       dayListEl.innerHTML = dayKeys.map(day => {
-        const d = totals.dayMap[day];
+        const d = filteredTotals.dayMap[day];
         return `
           <div class="day-pill">
             <span style="font-weight:700; color:var(--text);">${day}</span>
@@ -1034,21 +1155,35 @@
   }
 
   function shareChaiReportWA() {
-    const totals = calculateChaiTotals();
+    const filter = getChaiDateFilter();
+    const totals = calculateChaiTotals(filter);
+    const overallTotals = calculateChaiTotals({ from: '', to: '', isActive: false });
+
     let msg = `☕ *ATUL CHAIWALA HISAAB REPORT*\n`;
+    if (filter.isActive) {
+      const fromLabel = filter.from ? formatIsoToReadable(filter.from) : 'Start';
+      const toLabel = filter.to ? formatIsoToReadable(filter.to) : 'Today';
+      msg += `🗓️ *Period:* ${fromLabel} to ${toLabel}\n`;
+    }
     msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
     msg += `🍵 *Total Chai Cups:* ${totals.totalCups} Cups (@ ₹${appState.atulChai.rate})\n`;
-    msg += `💰 *Total Chai Bill:* ₹${totals.totalBill}\n`;
-    msg += `💵 *Total Paid:* ₹${totals.totalPaid}\n`;
-    msg += `📌 *Baki Balance (Due):* *₹${totals.due}*\n`;
+    msg += `💰 *Period Chai Bill:* ₹${totals.totalBill}\n`;
+    msg += `💵 *Period Paid:* ₹${totals.totalPaid}\n`;
+    if (filter.isActive) {
+      msg += `📊 *Period Net:* ₹${totals.due}\n`;
+      msg += `📌 *Overall Baki Due:* *₹${overallTotals.due}*\n`;
+    } else {
+      msg += `📌 *Baki Balance (Due):* *₹${totals.due}*\n`;
+    }
     msg += `━━━━━━━━━━━━━━━━━━━━━\n`;
     msg += `📅 *DAY-WISE BREAKDOWN:*\n`;
 
-    const dayKeys = Object.keys(totals.dayMap).reverse().slice(0, 15);
-    if (dayKeys.length === 0) {
-      msg += `_No entries._\n`;
+    const dayKeys = Object.keys(totals.dayMap).reverse();
+    const keysToPrint = filter.isActive ? dayKeys : dayKeys.slice(0, 15);
+    if (keysToPrint.length === 0) {
+      msg += `_No entries for selected dates._\n`;
     } else {
-      dayKeys.forEach(day => {
+      keysToPrint.forEach(day => {
         const d = totals.dayMap[day];
         msg += `• ${day}: ${d.cups} Cups = *₹${d.amount}*\n`;
       });
