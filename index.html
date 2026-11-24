@@ -142,6 +142,54 @@
       font-weight: 700;
       text-transform: uppercase;
     }
+
+    /* Gullak 1% Savings Styles */
+    .gullak-banner {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(56, 189, 248, 0.08));
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .gullak-row {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.78rem;
+    }
+    .gullak-check-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-weight: 700;
+      text-transform: none;
+      letter-spacing: 0;
+      font-size: 0.76rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--card-border);
+      transition: 0.15s;
+    }
+    .gullak-check-label.done {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    .gullak-check-label input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      margin: 0;
+      accent-color: var(--green);
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -267,6 +315,22 @@
     <div class="flex-between" style="margin-bottom:10px;">
       <h3 style="font-size:0.95rem;">Past Shift Archives</h3>
       <span style="font-size:0.75rem; color:var(--muted);">Click card to expand | Share to WA</span>
+    </div>
+
+    <!-- Total Gullak 1% Savings Tracker -->
+    <div class="gullak-banner">
+      <div>
+        <div style="font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.5px; color:var(--green);">
+          🏺 Total Gullak Savings (1%)
+        </div>
+        <div id="gullak-meta-text" style="font-size:0.7rem; color:var(--muted); margin-top:2px;">
+          0 shifts saved in Gullak
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <div id="gullak-total-val" style="font-size:1.25rem; font-weight:900; color:var(--green);">₹0</div>
+        <div id="gullak-pending-val" style="font-size:0.68rem; color:var(--amber); font-weight:700;">Pending: ₹0</div>
+      </div>
     </div>
 
     <div style="margin-bottom:12px;">
@@ -1064,7 +1128,6 @@
   function renderChaiUI() {
     ensureChaiState();
 
-    // Overall stats remain untouched for top header & cards
     const overallTotals = calculateChaiTotals({ from: '', to: '', isActive: false });
     document.getElementById('chai-rate-display').textContent = `₹${appState.atulChai.rate}`;
     document.getElementById('chai-stat-cups').textContent = `${overallTotals.totalCups}`;
@@ -1072,7 +1135,6 @@
     document.getElementById('chai-stat-due').textContent = `₹${overallTotals.due}`;
     document.getElementById('chai-due-badge').textContent = `₹${overallTotals.due}`;
 
-    // Filtered Day-Wise Summary
     const filter = getChaiDateFilter();
     const clearBtn = document.getElementById('chai-filter-clear');
     const filterSummaryEl = document.getElementById('chai-filter-summary');
@@ -1274,6 +1336,7 @@
     appState.currentShift.discrepancy = discrepancy;
     appState.currentShift.totalIn = totals.in;
     appState.currentShift.totalOut = totals.out;
+    appState.currentShift.gullakDone = false;
 
     if (!appState.history) appState.history = [];
     appState.history.unshift({ ...appState.currentShift });
@@ -1405,11 +1468,54 @@
     return text.toString().replace(regex, `<mark class="match-hl">$1</mark>`);
   }
 
+  // ==================== GULLAK 1% SAVINGS LOGIC ====================
+  function getShiftGullakAmount(shift) {
+    const baseAmt = Number(shift.actualCashCounted ?? (shift.expectedCash || 0));
+    if (!baseAmt || baseAmt <= 0) return 0;
+    return Math.round(baseAmt * 0.01);
+  }
+
+  function toggleShiftGullak(idx, isChecked) {
+    const history = appState.history || [];
+    if (!history[idx]) return;
+    history[idx].gullakDone = Boolean(isChecked);
+    persistLocalState();
+    renderHistory();
+    pushToGitHub();
+  }
+
+  function updateGullakSummaryBanner() {
+    const history = appState.history || [];
+    let savedTotal = 0;
+    let pendingTotal = 0;
+    let doneCount = 0;
+
+    history.forEach(s => {
+      const gAmt = getShiftGullakAmount(s);
+      if (s.gullakDone) {
+        savedTotal += gAmt;
+        doneCount++;
+      } else {
+        pendingTotal += gAmt;
+      }
+    });
+
+    const totalEl = document.getElementById('gullak-total-val');
+    const pendingEl = document.getElementById('gullak-pending-val');
+    const metaEl = document.getElementById('gullak-meta-text');
+
+    if (totalEl) totalEl.textContent = `₹${savedTotal}`;
+    if (pendingEl) pendingEl.textContent = `Pending: ₹${pendingTotal}`;
+    if (metaEl) metaEl.textContent = `${doneCount} of ${history.length} shifts saved in Gullak`;
+  }
+
   function renderHistory() {
     const container = document.getElementById('history-container');
     const history = appState.history || [];
     const searchInput = document.getElementById('history-search-input');
     const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+    updateGullakSummaryBanner();
 
     if (history.length === 0) {
       container.innerHTML = `<div style="color:var(--muted); font-size:0.82rem; text-align:center; padding:16px;">Koi purani shift archive me nahi hai.</div>`;
@@ -1437,6 +1543,9 @@
       const checkOutDisp = s.checkoutTime ? s.checkoutTime.split(', ')[1] || s.checkoutTime : 'Closed';
       const shouldAutoOpen = query && hasMatchingEntry;
 
+      const gullakAmt = getShiftGullakAmount(s);
+      const isGullakDone = Boolean(s.gullakDone);
+
       return `
         <div class="history-card ${shouldAutoOpen ? 'active-card-open' : ''}" id="hist-card-${idx}" onclick="toggleHistoryDetails(${idx})">
           <div class="flex-between">
@@ -1454,6 +1563,17 @@
               <div style="font-weight:800; font-size:0.95rem;">Counted: ₹${s.actualCashCounted ?? (s.expectedCash || 0)}</div>
               <div style="margin-top:2px;">${tallyBadge}</div>
             </div>
+          </div>
+
+          <!-- Gullak 1% Savings Row -->
+          <div class="gullak-row" onclick="event.stopPropagation()">
+            <span style="color:var(--muted);">
+              🏺 Gullak Savings (1%): <strong class="${isGullakDone ? 'c-green' : 'c-amber'}">₹${gullakAmt}</strong>
+            </span>
+            <label class="gullak-check-label ${isGullakDone ? 'done' : ''}">
+              <input type="checkbox" ${isGullakDone ? 'checked' : ''} onchange="toggleShiftGullak(${idx}, this.checked)" />
+              ${isGullakDone ? '✓ Gullak Done' : 'Mark Done'}
+            </label>
           </div>
 
           <div id="hist-detail-${idx}" class="history-details ${shouldAutoOpen ? 'open' : ''}" onclick="event.stopPropagation()">
