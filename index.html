@@ -276,19 +276,22 @@
 
     <div id="active-card" class="card hidden" style="width:100%;">
       <div class="flex-between" style="margin-bottom:12px;">
-        <h3 style="font-size:0.95rem;">Log Galla Movement</h3>
+        <div>
+          <h3 style="font-size:0.95rem;">Log Galla Movement</h3>
+          <div style="font-size:0.68rem; color:var(--muted); margin-top:2px;">Keys: [+] Cash IN | [-] Cash OUT | [M] Amount Box</div>
+        </div>
         <button class="btn btn-red btn-sm" tabindex="-1" onclick="endShiftPrompt()">Close Shift [O]</button>
       </div>
       <div class="grid-2">
         <div class="input-group">
-          <label>Type</label>
+          <label>Type [+ / -]</label>
           <select id="tx-type" tabindex="1">
-            <option value="IN">Cash IN (Aaya)</option>
-            <option value="OUT">Cash OUT (Diya)</option>
+            <option value="IN">Cash IN (Aaya) [+]</option>
+            <option value="OUT">Cash OUT (Diya) [-]</option>
           </select>
         </div>
         <div class="input-group">
-          <label>Amount (₹ / Math: 55+11)</label>
+          <label>Amount (₹ / Math: 55+11) [M]</label>
           <input type="text" id="tx-amount" tabindex="2" placeholder="e.g. 500 or 55+11" autocomplete="off" />
         </div>
       </div>
@@ -815,7 +818,28 @@
         return;
       }
 
-      // Context-Specific Shortcuts for Active Shift Tab
+      // Active Shift Designated Shortcuts: [+] Cash IN, [-] Cash OUT, [M] Focus Amount
+      if (activeTab === 'active' && appState.currentShift && appState.currentShift.status === 'ACTIVE') {
+        if (e.key === '+' || e.key === '=') {
+          e.preventDefault();
+          typeSelect.value = 'IN';
+          amtInput.focus();
+          return;
+        }
+        if (e.key === '-' || e.key === '_') {
+          e.preventDefault();
+          typeSelect.value = 'OUT';
+          amtInput.focus();
+          return;
+        }
+        if (key === 'm') {
+          e.preventDefault();
+          amtInput.focus();
+          return;
+        }
+      }
+
+      // Context-Specific Shortcuts for Active Shift Check-In / Check-Out
       if (key === 'i') {
         e.preventDefault();
         switchTab('active');
