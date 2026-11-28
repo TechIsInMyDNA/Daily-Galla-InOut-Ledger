@@ -57,6 +57,7 @@
     .badge-closed { background: rgba(100, 116, 139, 0.15); color: var(--muted); border: 1px solid var(--muted); }
     .badge-amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid var(--amber); }
     .badge-red { background: rgba(244, 63, 94, 0.15); color: var(--red); border: 1px solid var(--red); }
+    .badge-primary { background: rgba(56, 189, 248, 0.15); color: var(--primary); border: 1px solid var(--primary); }
     .hidden { display: none !important; }
     .sync-text { font-size: 0.72rem; color: var(--muted); font-family: monospace; }
     .kbd-tag { background: #1e293b; color: var(--primary); border: 1px solid #334155; padding: 1px 5px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; }
@@ -399,6 +400,48 @@
       </div>
     </div>
 
+    <!-- Employee Chai Cash (1-Click Fixed Rate Cash Given to Staff) -->
+    <div class="card">
+      <div class="flex-between" style="margin-bottom:8px;">
+        <div>
+          <h3 style="font-size:0.9rem; color:var(--primary);">👥 Employee Chai Cash (1-Click <span class="emp-rate-tag c-amber">₹10</span>)</h3>
+          <div style="font-size:0.68rem; color:var(--muted);">Keys: [G] Gaurav | [U] Pandurang | [E] Employee</div>
+        </div>
+        <span id="emp-chai-total-badge" class="badge badge-primary">Total: ₹0</span>
+      </div>
+
+      <div class="grid-3" style="margin-bottom:8px;">
+        <button class="btn btn-primary" tabindex="-1" onclick="giveEmployeeChai('Gaurav')" style="padding:9px 6px; font-size:0.8rem;">
+          Gaurav [G]<br><span style="font-size:0.68rem; opacity:0.85;">+<span class="emp-rate-tag">₹10</span></span>
+        </button>
+        <button class="btn btn-primary" tabindex="-1" onclick="giveEmployeeChai('Pandurang')" style="padding:9px 6px; font-size:0.8rem;">
+          Pandurang [U]<br><span style="font-size:0.68rem; opacity:0.85;">+<span class="emp-rate-tag">₹10</span></span>
+        </button>
+        <button class="btn btn-primary" tabindex="-1" onclick="giveEmployeeChai('Employee')" style="padding:9px 6px; font-size:0.8rem;">
+          Employee [E]<br><span style="font-size:0.68rem; opacity:0.85;">+<span class="emp-rate-tag">₹10</span></span>
+        </button>
+      </div>
+
+      <!-- Optional Custom Employee Name + Galla Auto-Out Toggle -->
+      <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <input type="text" id="custom-emp-name" tabindex="15" placeholder="Other employee name..." style="padding:7px 9px; font-size:0.82rem;" />
+        <button class="btn btn-sm" tabindex="-1" onclick="giveCustomEmployeeChai()" style="white-space:nowrap; border:1px solid var(--card-border);">+<span class="emp-rate-tag">₹10</span> Add</button>
+      </div>
+
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+        <input type="checkbox" id="emp-chai-sync-galla" checked tabindex="16" style="width:15px; height:15px; accent-color:var(--primary);" />
+        <label for="emp-chai-sync-galla" style="text-transform:none; font-size:0.75rem; color:var(--text); cursor:pointer;">
+          Active Shift ke Galla Cash OUT me bhi auto-minus karein
+        </label>
+      </div>
+
+      <!-- Employee-Wise Summary -->
+      <div id="emp-chai-summary-list" style="margin-bottom:6px;"></div>
+
+      <!-- Recent Employee Chai Logs -->
+      <div id="emp-chai-logs-list"></div>
+    </div>
+
     <!-- Payment Given to Atul Card -->
     <div class="card">
       <div class="flex-between" style="margin-bottom:10px;">
@@ -637,7 +680,8 @@
     history: [],
     atulChai: {
       rate: 10,
-      logs: []
+      logs: [],
+      empLogs: []
     },
     dbLedger: {
       defaultCoin: 2,
@@ -650,13 +694,16 @@
 
   function ensureChaiState() {
     if (!appState.atulChai) {
-      appState.atulChai = { rate: 10, logs: [] };
+      appState.atulChai = { rate: 10, logs: [], empLogs: [] };
     }
     if (typeof appState.atulChai.rate !== 'number' || appState.atulChai.rate <= 0) {
       appState.atulChai.rate = 10;
     }
     if (!Array.isArray(appState.atulChai.logs)) {
       appState.atulChai.logs = [];
+    }
+    if (!Array.isArray(appState.atulChai.empLogs)) {
+      appState.atulChai.empLogs = [];
     }
   }
 
@@ -800,6 +847,7 @@
 
     // Chai inputs
     const customCupsInput = document.getElementById('custom-chai-cups');
+    const customEmpInput = document.getElementById('custom-emp-name');
     const chaiPayAmtInput = document.getElementById('chai-pay-amount');
     const chaiPayNoteInput = document.getElementById('chai-pay-note');
 
@@ -848,6 +896,16 @@
         customCupsInput.blur();
       }
     });
+
+    if (customEmpInput) {
+      customEmpInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          giveCustomEmployeeChai();
+          customEmpInput.blur();
+        }
+      });
+    }
 
     chaiPayAmtInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
@@ -931,6 +989,15 @@
         } else if (key === '3') {
           e.preventDefault();
           addChaiCups(3);
+        } else if (key === 'g') {
+          e.preventDefault();
+          giveEmployeeChai('Gaurav');
+        } else if (key === 'u') {
+          e.preventDefault();
+          giveEmployeeChai('Pandurang');
+        } else if (key === 'e') {
+          e.preventDefault();
+          giveEmployeeChai('Employee');
         } else if (key === 'p') {
           e.preventDefault();
           chaiPayAmtInput.focus();
@@ -1336,7 +1403,7 @@
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
   }
 
-  // ==================== ATUL CHAIWALA FUNCTIONS ====================
+  // ==================== ATUL CHAIWALA & EMPLOYEE CHAI FUNCTIONS ====================
   function setChaiRate() {
     ensureChaiState();
     const newRateStr = prompt("1 Cup Chai ka rate set karein (₹):", appState.atulChai.rate);
@@ -1382,6 +1449,64 @@
     }
     inp.value = '';
     addChaiCups(cups);
+  }
+
+  function giveEmployeeChai(empName) {
+    ensureChaiState();
+    const cleanName = (empName || 'Employee').trim();
+    if (!cleanName) return;
+
+    const rate = appState.atulChai.rate;
+    const now = new Date();
+    const ts = formatDateTime(now);
+    const dayKey = formatDayKey(now);
+    const entryId = Date.now();
+    const syncGallaEl = document.getElementById('emp-chai-sync-galla');
+    const syncGalla = syncGallaEl ? syncGallaEl.checked : true;
+
+    appState.atulChai.empLogs.unshift({
+      id: entryId,
+      name: cleanName,
+      amount: rate,
+      dayKey: dayKey,
+      timestamp: ts
+    });
+
+    // Optional auto-entry into Active Galla Shift Cash OUT
+    if (syncGalla && appState.currentShift && appState.currentShift.status === 'ACTIVE') {
+      appState.currentShift.entries.unshift({
+        id: entryId + 1,
+        type: 'OUT',
+        amount: rate,
+        desc: `Chai Cash - ${cleanName}`,
+        timestamp: ts
+      });
+      renderUI();
+    }
+
+    persistLocalState();
+    renderChaiUI();
+    pushToGitHub();
+  }
+
+  function giveCustomEmployeeChai() {
+    const inp = document.getElementById('custom-emp-name');
+    const name = inp ? inp.value.trim() : '';
+    if (!name) {
+      alert("Employee ka naam likhein!");
+      return;
+    }
+    inp.value = '';
+    giveEmployeeChai(name);
+  }
+
+  function deleteEmpChaiLog(id) {
+    if (!confirm("Kya aap is employee chai cash entry ko delete karna chahte hain?")) return;
+    ensureChaiState();
+    appState.atulChai.empLogs = appState.atulChai.empLogs.filter(item => item.id !== id);
+    persistLocalState();
+    renderChaiUI();
+    pushToGitHub();
   }
 
   function payAtulChai() {
@@ -1490,6 +1615,67 @@
     };
   }
 
+  function renderEmployeeChaiSection() {
+    ensureChaiState();
+    const rate = appState.atulChai.rate;
+    document.querySelectorAll('.emp-rate-tag').forEach(el => {
+      el.textContent = `₹${rate}`;
+    });
+
+    const empLogs = appState.atulChai.empLogs;
+    let totalEmpGiven = 0;
+    const byPerson = {};
+
+    empLogs.forEach(item => {
+      totalEmpGiven += item.amount;
+      const key = item.name || 'Employee';
+      if (!byPerson[key]) byPerson[key] = { count: 0, amount: 0 };
+      byPerson[key].count += 1;
+      byPerson[key].amount += item.amount;
+    });
+
+    const badgeEl = document.getElementById('emp-chai-total-badge');
+    if (badgeEl) badgeEl.textContent = `Total: ₹${totalEmpGiven}`;
+
+    const summaryEl = document.getElementById('emp-chai-summary-list');
+    if (summaryEl) {
+      const names = Object.keys(byPerson);
+      if (names.length === 0) {
+        summaryEl.innerHTML = '';
+      } else {
+        summaryEl.innerHTML = names.map(name => `
+          <div class="day-pill" style="padding:6px 10px; margin-bottom:5px;">
+            <span style="font-weight:700; color:var(--text);">👤 ${name}</span>
+            <span>
+              <span class="badge badge-primary" style="margin-right:6px;">${byPerson[name].count}x</span>
+              <strong class="c-primary">₹${byPerson[name].amount}</strong>
+            </span>
+          </div>
+        `).join('');
+      }
+    }
+
+    const logsEl = document.getElementById('emp-chai-logs-list');
+    if (logsEl) {
+      if (empLogs.length === 0) {
+        logsEl.innerHTML = `<div style="color:var(--muted); font-size:0.76rem; text-align:center; padding:6px;">Abhi tak kisi employee ko chai cash nahi diya.</div>`;
+      } else {
+        logsEl.innerHTML = empLogs.slice(0, 12).map(item => `
+          <div class="log-item" style="padding:6px 0;">
+            <div>
+              <div class="log-desc" style="font-size:0.82rem;">☕ ${item.name}</div>
+              <div class="log-meta">${item.timestamp}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span style="font-weight:800; font-size:0.85rem;" class="c-primary">₹${item.amount}</span>
+              <button class="btn btn-sm" tabindex="-1" style="padding:2px 6px; font-size:0.7rem; color:var(--muted);" onclick="deleteEmpChaiLog(${item.id})">✕</button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+  }
+
   function renderChaiUI() {
     ensureChaiState();
 
@@ -1499,6 +1685,8 @@
     document.getElementById('chai-stat-bill').textContent = `₹${overallTotals.totalBill}`;
     document.getElementById('chai-stat-due').textContent = `₹${overallTotals.due}`;
     document.getElementById('chai-due-badge').textContent = `₹${overallTotals.due}`;
+
+    renderEmployeeChaiSection();
 
     const filter = getChaiDateFilter();
     const clearBtn = document.getElementById('chai-filter-clear');
